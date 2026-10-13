@@ -11,19 +11,19 @@ checksum come from [go.dev](https://go.dev/dl/), not GitHub or git.
 macOS and Linux:
 
 ```sh
-curl --fail-with-body --location --url https://raw.githubusercontent.com/meop/gotm/main/install.sh | sh
+curl --fail-with-body --location --no-progress-meter --url https://raw.githubusercontent.com/meop/gotm/main/install.sh | sh
 ```
 
 Windows:
 
 ```powershell
-irm https://raw.githubusercontent.com/meop/gotm/main/install.ps1 | iex
+irm -ErrorAction Stop -Uri https://raw.githubusercontent.com/meop/gotm/main/install.ps1 | iex
 ```
 
 Then put `~/.gotm/bin` on your `PATH`. It holds `gotm` and the `go` and `gofmt`
 it installs.
 
-## Use
+## Usage
 
 ```sh
 gotm add             # follow go's newest stable release, as go and gofmt
@@ -45,7 +45,7 @@ gotm upgrade         # upgrade gotm itself
 | `--non-interactive` | Never prompt; for scripted use |
 | `--force` | On `add` and `sync`: replace a file in `~/.gotm/bin` that gotm did not put there |
 
-## What it does
+## Behavior
 
 - Nothing is installed until you add it, and `sync` only updates what was added.
 - Added toolchains sit beside each other. The one following `latest` is `go` and

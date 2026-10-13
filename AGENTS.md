@@ -29,6 +29,17 @@ Update this file when a package is added, removed or renamed, when the manifest
 or disk layout changes, or when a flow changes. Update `README.md` when
 user-visible behavior changes.
 
+## Cross-compile
+
+```sh
+GOOS=darwin  GOARCH=arm64 go build -o gotm-darwin-arm64      ./cmd/gotm
+GOOS=darwin  GOARCH=amd64 go build -o gotm-darwin-amd64      ./cmd/gotm
+GOOS=linux   GOARCH=arm64 go build -o gotm-linux-arm64       ./cmd/gotm
+GOOS=linux   GOARCH=amd64 go build -o gotm-linux-amd64       ./cmd/gotm
+GOOS=windows GOARCH=arm64 go build -o gotm-windows-arm64.exe ./cmd/gotm
+GOOS=windows GOARCH=amd64 go build -o gotm-windows-amd64.exe ./cmd/gotm
+```
+
 ## Publishing
 
 To cut a release: bump the version in `VERSION` and push to `main`. The CI
