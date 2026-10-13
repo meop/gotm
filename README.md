@@ -32,6 +32,7 @@ gotm add 1.26.4      # stay on exactly 1.26.4, as go1.26.4 and gofmt1.26.4
 gotm sync            # update every added toolchain to the newest release its pin allows
 gotm sync 1.26       # update only that one
 gotm list            # the added toolchains, their pins, and their commands
+gotm list -l         # just the pins, one per line, for a script
 gotm outdated        # the ones a newer release is out for
 gotm remove 1.26     # remove one
 gotm upgrade         # upgrade gotm itself
@@ -43,6 +44,8 @@ gotm upgrade         # upgrade gotm itself
 | `--yes`, `-y` | Answer yes to the confirmation |
 | `--quiet`, `-q` | Print only tables and errors |
 | `--non-interactive` | Never prompt; for scripted use |
+| `--long-names`, `-l` | On `list` and `outdated`: print pins only, one per line, and nothing when there are none |
+| `--short-names`, `-s` | On `list` and `outdated`: print pins only, space-separated on one line, and nothing when there are none |
 | `--force` | On `add` and `sync`: replace a file in `~/.gotm/bin` that gotm did not put there |
 
 ## Behavior

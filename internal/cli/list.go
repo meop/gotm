@@ -12,7 +12,7 @@ import (
 const msgNoneAdded = "no go added"
 
 func newListCmd() *cobra.Command {
-	return &cobra.Command{
+	cmd := &cobra.Command{
 		Use:     "list",
 		Aliases: []string{"ls"},
 		Short:   "Show the added go toolchains",
@@ -21,6 +21,11 @@ func newListCmd() *cobra.Command {
 			m, err := config.LoadManifest()
 			if err != nil {
 				return fail("could not load manifest: %v", err)
+			}
+			// a pin is what every other command takes, so it is the name a
+			// script is given
+			if printNameList(m.Pins()) {
+				return nil
 			}
 			if len(m.Toolchains) == 0 {
 				print(msgNoneAdded)
@@ -35,10 +40,12 @@ func newListCmd() *cobra.Command {
 			return nil
 		},
 	}
+	addNameFormatFlags(cmd)
+	return cmd
 }
 
 func newOutdatedCmd() *cobra.Command {
-	return &cobra.Command{
+	cmd := &cobra.Command{
 		Use:   "outdated",
 		Short: "Show the added go toolchains a newer release is out for",
 		Args:  cobra.NoArgs,
@@ -53,6 +60,7 @@ func newOutdatedCmd() *cobra.Command {
 			}
 			var r resolver
 			var rows [][]string
+			var pins []string
 			for _, pin := range m.Pins() {
 				tc := m.Toolchains[pin]
 				target, err := r.resolve(context.Background(), pin)
@@ -61,7 +69,11 @@ func newOutdatedCmd() *cobra.Command {
 				}
 				if target.Version != tc.Version {
 					rows = append(rows, []string{shimName(pkgGo, pin), shown(tc.Version), shown(target.Version), pin})
+					pins = append(pins, pin)
 				}
+			}
+			if printNameList(pins) {
+				return nil
 			}
 			if len(rows) == 0 {
 				print("go is up to date")
@@ -71,4 +83,6 @@ func newOutdatedCmd() *cobra.Command {
 			return nil
 		},
 	}
+	addNameFormatFlags(cmd)
+	return cmd
 }

@@ -134,5 +134,10 @@ is not part of `upgrade`.
   anywhere: sheesh and gotm's own upgrade are plain release downloads
 - A shim is replaced or removed only if `shim.IsShim` says gotm stamped it;
   anything else in `~/.gotm/bin` needs `--force`
+- Names mode prints names and nothing else: `--long-names` / `--short-names`
+  on `list` and `outdated` are output for a script, so every status line is
+  silent under them and an empty result is empty output — never `no go added`,
+  which a script would have to recognise by its wording. The names are pins,
+  since a pin is what every other command takes
 - Output follows ghpm: `<subject> <verb> [<name>]` info lines, a gate before any
   change, `✓` and `✗` only on summaries and errors, and a closing line on a dry run
