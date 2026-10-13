@@ -1,0 +1,116 @@
+---
+name: Pipeline
+
+on:
+  push:
+    branches:
+      - '**'
+  pull_request:
+    branches:
+      - '**'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+permissions:
+  contents: read
+
+jobs:
+  version:
+    name: Version
+    runs-on: ubuntu-latest
+    outputs:
+      changed: ${{ steps.check.outputs.changed }}
+      new_version: ${{ steps.check.outputs.version }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Check for version tag
+        id: check
+        shell: bash
+        run: |
+          VERSION=$(cat VERSION | tr -d '[:space:]')
+          echo "Target version: $VERSION"
+          if git rev-parse "v$VERSION" >/dev/null 2>&1; then
+            echo "Tag v$VERSION already exists. Skipping release steps."
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "Tag v$VERSION does not exist. Triggering release pipeline."
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          fi
+
+  validate:
+    name: Validate
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+      - name: Setup Go
+        uses: actions/setup-go@v7
+        with:
+          go-version: stable
+      - name: Format check
+        run: test -z "$(gofmt -l .)"
+      - name: Lint
+        uses: golangci/golangci-lint-action@v9
+        with:
+          version: latest
+      - name: Test
+        run: go test ./...
+
+  test-windows:
+    name: Test on Windows
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+      - name: Setup Go
+        uses: actions/setup-go@v7
+        with:
+          go-version: stable
+      - name: Test
+        run: go test ./...
+
+  release:
+    name: Release
+    needs: [ version, validate, test-windows ]
+    if: github.ref == 'refs/heads/main' && needs.version.outputs.changed == 'true'
+    permissions:
+      contents: write
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Setup Go
+        uses: actions/setup-go@v7
+        with:
+          go-version: stable
+      - name: Build check
+        run: go build ./...
+      - name: Import GPG key
+        id: import_gpg
+        uses: crazy-max/ghaction-import-gpg@v7
+        with:
+          gpg_private_key: ${{ secrets.GPG_PRIVATE_KEY }}
+          passphrase: ${{ secrets.GPG_PASSPHRASE }}
+          git_user_signingkey: true
+          git_tag_gpgsign: true
+      - name: Create signed tag
+        run: |
+          git tag -s "v${{ needs.version.outputs.new_version }}" -m "Release v${{ needs.version.outputs.new_version }}"
+          git push origin "v${{ needs.version.outputs.new_version }}"
+      - name: GoReleaser
+        uses: goreleaser/goreleaser-action@v7
+        with:
+          distribution: goreleaser
+          version: '~> v2'
+          args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GPG_FINGERPRINT: ${{ steps.import_gpg.outputs.fingerprint }}

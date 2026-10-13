@@ -1,0 +1,23 @@
+# Normalize line endings
+* text=auto eol=lf
+
+# Go source
+*.go text diff=go
+
+# Scripts
+*.sh text
+*.ps1 text
+
+# Config
+*.yaml text
+*.json text
+*.toml text
+*.mod text
+*.sum text
+
+# Binary files
+*.tar.gz binary
+*.tar.bz2 binary
+*.tar.xz binary
+*.zip binary
+*.exe binary
