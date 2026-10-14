@@ -1,121 +1,47 @@
+// Package config holds gotm's manifest and its lock over ~/.gotm.
 package config
 
 import (
-	"encoding/json"
-	"errors"
-	"os"
-	"path/filepath"
-	"slices"
-	"strings"
-
-	"github.com/meop/golie/vers"
+	"github.com/meop/golie/manifest"
 
 	"github.com/meop/gotm/internal/store"
 )
 
-// PinLatest is the pin of a toolchain that follows go's newest stable release.
-const PinLatest = "latest"
+// The manifest is golie's, the one ghpm keeps: gotm is ghpm with a single
+// package, so its installs are recorded the same way — "go" for the toolchain
+// that follows go's newest release, "go@1.26" for one held to a line and
+// "go@1.26.4" for one held to a release.
+type (
+	Entry    = manifest.Entry
+	Manifest = manifest.Manifest
+)
 
-// Toolchain is one go gotm was asked to keep. Version is the release its pin
-// resolved to and is unpacked on disk, in go.dev's spelling ("go1.27.2"). Bin
-// names the shims stamped for it.
-type Toolchain struct {
-	Version string   `json:"version"`
-	Bin     []string `json:"bin,omitempty"`
-}
+// Package is the one package gotm manages, and Source where its releases
+// come from, as the manifest's repo map records them.
+const (
+	Package = "go"
+	Source  = "go.dev/dl"
+)
 
-// Manifest is everything gotm records: the toolchains that were added, each
-// keyed by its pin — "latest", a line ("1.26") or one release ("1.26.4"). They
-// sit side by side: every pin has its own shims, and nothing switches between
-// them.
-type Manifest struct {
-	Toolchains map[string]Toolchain `json:"toolchain"`
-}
-
-// Pins lists the added pins, latest first and then newest line first.
-func (m *Manifest) Pins() []string {
-	pins := make([]string, 0, len(m.Toolchains))
-	for pin := range m.Toolchains {
-		pins = append(pins, pin)
-	}
-	slices.SortFunc(pins, func(a, b string) int {
-		if a == PinLatest || b == PinLatest {
-			if a == b {
-				return 0
-			}
-			if a == PinLatest {
-				return -1
-			}
-			return 1
-		}
-		if c := vers.CompareVersions(b, a); c != 0 {
-			return c
-		}
-		return strings.Compare(a, b)
-	})
-	return pins
-}
-
-// Uses reports whether any toolchain other than the one pinned except is on
-// release: a tree is shared by every pin that resolves to it, and is only
-// removed once the last of them has moved off it.
-func (m *Manifest) Uses(release, except string) bool {
-	for pin, tc := range m.Toolchains {
-		if pin != except && tc.Version == release {
-			return true
-		}
-	}
-	return false
-}
-
-func manifestPath() (string, error) {
-	dir, err := store.Dir()
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(dir, "manifest.json"), nil
-}
+// PinLatest is what a toolchain that follows go's newest stable release is
+// asked for by, and the pin level it is recorded with.
+const PinLatest = manifest.PinLatest
 
 // LoadManifest reads the manifest, or returns an empty one when there is none
 // yet.
 func LoadManifest() (*Manifest, error) {
-	path, err := manifestPath()
+	l, err := store.Layout()
 	if err != nil {
 		return nil, err
 	}
-	m := &Manifest{}
-	data, err := os.ReadFile(path)
-	if err != nil && !errors.Is(err, os.ErrNotExist) {
-		return nil, err
-	}
-	if err == nil {
-		if err := json.Unmarshal(data, m); err != nil {
-			return nil, err
-		}
-	}
-	if m.Toolchains == nil {
-		m.Toolchains = map[string]Toolchain{}
-	}
-	return m, nil
+	return manifest.Load(l.ManifestPath())
 }
 
-// SaveManifest writes the manifest through a temp file and a rename, so a
-// crash mid-write leaves the old one in place rather than a truncated one.
+// SaveManifest writes the manifest; see golie's manifest.Save.
 func SaveManifest(m *Manifest) error {
-	path, err := manifestPath()
+	l, err := store.Layout()
 	if err != nil {
 		return err
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
-		return err
-	}
-	data, err := json.MarshalIndent(m, "", "  ")
-	if err != nil {
-		return err
-	}
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, append(data, '\n'), 0644); err != nil {
-		return err
-	}
-	return os.Rename(tmp, path)
+	return manifest.Save(m, l.ManifestPath())
 }

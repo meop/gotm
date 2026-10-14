@@ -2,109 +2,137 @@ package cli
 
 import (
 	"context"
-	"fmt"
+	"crypto/sha256"
+	"encoding/hex"
+	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
 
+	"github.com/meop/golie/manifest"
 	"github.com/meop/golie/shim"
+
 	"github.com/meop/gotm/internal/config"
 	"github.com/meop/gotm/internal/godl"
 	"github.com/meop/gotm/internal/store"
 )
 
-// normalizePin turns what was typed into the pin a toolchain is keyed by:
-// "latest" for nothing or latest, and otherwise the version without go.dev's
-// "go" prefix, so "go1.26" and "1.26" are the same toolchain.
-func normalizePin(arg string) (string, error) {
-	pin := strings.ToLower(strings.TrimSpace(arg))
-	if pin == "" || pin == config.PinLatest {
-		return config.PinLatest, nil
+// parsePin turns an argument into what a toolchain is pinned to: nothing for
+// the one that follows go's newest release, a line ("1.26") or one release
+// ("1.26.4"). gotm's one package is go, so the argument is ghpm's with the
+// name left off — "1.26" for ghpm's "go@1.26", "latest" for a bare "go" — and
+// the key itself is taken too, since it is what list prints.
+func parsePin(arg string) (string, error) {
+	typed := strings.ToLower(strings.TrimSpace(arg))
+	pin := strings.TrimPrefix(strings.TrimPrefix(typed, pkgGo), "@")
+	if typed == pkgGo || pin == config.PinLatest {
+		return "", nil
 	}
-	pin = godl.Display(pin)
 	if pin == "" || pin[0] < '0' || pin[0] > '9' {
-		return "", fmt.Errorf("invalid version %q: expected latest, a line like 1.26, or a release like 1.26.4", arg)
+		return "", errors.New("invalid version: expected latest, a line like 1.26, or a release like 1.26.4")
 	}
 	return pin, nil
 }
 
-// shimName is what a toolchain's command is called on PATH: its own name for
-// the toolchain following latest, and its name with the pin for any other, so
-// "go" sits beside "go1.26" and "go1.26.4" and none replaces another.
-func shimName(bin, pin string) string {
-	if pin == config.PinLatest {
-		return bin
-	}
-	return bin + pin
-}
+// keyOf is the manifest key of the toolchain pinned to pin: "go", "go@1.26".
+func keyOf(pin string) string { return manifest.Key(pkgGo, pin) }
 
 // stamper is where gotm's shims go and what they may point at: a shim that
-// runs something under the toolchain dir is one gotm stamped.
+// runs something under the extract dir is one gotm stamped.
 func stamper() (shim.Stamper, error) {
-	binDir, err := store.BinDir()
+	l, err := store.Layout()
 	if err != nil {
 		return shim.Stamper{}, err
 	}
-	kebabDir, err := store.ShimDir()
+	binDir, err := l.BinDir()
 	if err != nil {
 		return shim.Stamper{}, err
 	}
-	owned, err := store.ToolchainsDir()
+	kebabDir, err := l.ShimDir()
 	if err != nil {
 		return shim.Stamper{}, err
 	}
-	return shim.Stamper{Tool: "gotm", BinDir: binDir, KebabDir: kebabDir, Owned: owned}, nil
+	return shim.Stamper{Tool: "gotm", BinDir: binDir, KebabDir: kebabDir, Owned: l.ExtractsDir()}, nil
 }
 
-// treeBins lists the commands a go tree ships in its bin dir, without the
-// host's executable suffix.
+// isShim is tidy's question of a file in the bin dir.
+func isShim(path string) bool {
+	s, err := stamper()
+	return err == nil && s.IsShim(path)
+}
+
+// treeBins lists the commands a go tree ships, as bin keys: their paths
+// inside the tree, named as the host names them ("bin/go", "bin/go.exe").
 func treeBins(tree string) ([]string, error) {
 	entries, err := os.ReadDir(filepath.Join(tree, "bin"))
 	if err != nil {
 		return nil, err
 	}
-	var names []string
+	var keys []string
 	for _, e := range entries {
-		if e.IsDir() {
-			continue
+		if !e.IsDir() {
+			keys = append(keys, "bin/"+e.Name())
 		}
-		names = append(names, strings.TrimSuffix(e.Name(), filepath.Ext(shim.ExeName("x"))))
+	}
+	slices.Sort(keys)
+	return keys, nil
+}
+
+// cached reports whether path is already the file sha256 names, so a release
+// another pin downloaded is not downloaded again and a damaged copy is.
+func cached(path, sha string) bool {
+	f, err := os.Open(path)
+	if err != nil {
+		return false
+	}
+	defer func() { _ = f.Close() }()
+	h := sha256.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return false
+	}
+	return strings.EqualFold(hex.EncodeToString(h.Sum(nil)), sha)
+}
+
+// findKeys is the reading commands' filter, for list and outdated: an
+// installed toolchain is kept when some term starts what it is pinned to or
+// the release it is on (godl.StartsWith), so "1.27" lists go@1.27.2 and the
+// go that follows latest while it is on 1.27.x. With no terms it is every
+// key. Reading is wider than acting on purpose: sync and remove take a pin
+// whole.
+func findKeys(m *config.Manifest, terms []string) []string {
+	keys := m.Keys()
+	if len(terms) == 0 {
+		return keys
+	}
+	return slices.DeleteFunc(keys, func(key string) bool {
+		_, pin, _ := manifest.ParseKey(key)
+		return !slices.ContainsFunc(terms, func(term string) bool {
+			want, err := parsePin(term)
+			if err != nil {
+				return false
+			}
+			if want == "" {
+				return pin == ""
+			}
+			return godl.StartsWith(pin, want) || godl.StartsWith(m.Extracts[key].Version, want)
+		})
+	})
+}
+
+// entryRows is one row per shim of an install, behind the leading columns
+// prefix gives: ghpm's list rows, where the type is always bin.
+func entryRows(rows [][]string, prefix []string, e config.Entry) [][]string {
+	names := make([]string, 0, len(e.Bin))
+	for name := range e.Bin {
+		names = append(names, name)
 	}
 	slices.Sort(names)
-	return names, nil
-}
-
-// treePresent reports whether release is unpacked: its go command is there.
-func treePresent(release string) bool {
-	if release == "" {
-		return false
+	for _, name := range names {
+		rows = append(rows, append(slices.Clone(prefix), "bin", name))
 	}
-	tree, err := store.ToolchainDir(release)
-	if err != nil {
-		return false
-	}
-	_, err = os.Stat(filepath.Join(tree, "bin", shim.ExeName(pkgGo)))
-	return err == nil
-}
-
-// healthy reports whether what the manifest says of a toolchain is really on
-// disk: the tree and every shim recorded for it. One that is not is redone by
-// sync rather than believed.
-func healthy(tc config.Toolchain) bool {
-	if !treePresent(tc.Version) || len(tc.Bin) == 0 {
-		return false
-	}
-	s, err := stamper()
-	if err != nil {
-		return false
-	}
-	for _, name := range tc.Bin {
-		if !s.IsShim(s.Path(shim.ExeName(name))) {
-			return false
-		}
-	}
-	return true
+	return rows
 }
 
 // resolver asks go.dev which release a pin names, fetching each of the two
@@ -126,12 +154,4 @@ func (r *resolver) resolve(ctx context.Context, pin string) (godl.Release, error
 		*list = releases
 	}
 	return godl.Resolve(*list, pin)
-}
-
-// shown is a release as tables print it, with a dash for none.
-func shown(release string) string {
-	if release == "" {
-		return "-"
-	}
-	return godl.Display(release)
 }

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"slices"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -13,6 +14,16 @@ import (
 )
 
 var errSilent = errors.New("")
+
+const msgNoneInstalled = "no toolchains installed"
+
+// msgNoMatch is shown when a version filter was given but matched nothing
+// installed, to tell it from an empty install set ("no toolchains installed").
+const msgNoMatch = "no toolchains matched"
+
+const msgAllUpToDate = "all toolchains are up to date"
+
+const msgGotmUpToDate = "gotm is up to date"
 
 // msgDryRun is printed at every dry-run bail point: a bare preview table
 // followed by silence is indistinguishable from a hang.
@@ -106,6 +117,41 @@ func gate(headers []string, rows [][]string, colColors []func(string) string, co
 		return false
 	}
 	return promptConfirm(confirmMsg)
+}
+
+// failedItem is one item that did not make it into a mutating command's
+// success count, paired with why, so the reason is still on screen when the
+// run ends rather than wherever the inline line scrolled to.
+type failedItem struct {
+	name   string
+	reason string
+}
+
+// printFailedTable closes a mutating command with what failed and why. noun
+// is singular ("toolchain", "component").
+func printFailedTable(noun string, items []failedItem) {
+	if len(items) == 0 {
+		return
+	}
+	sorted := slices.Clone(items)
+	slices.SortFunc(sorted, func(a, b failedItem) int { return strings.Compare(a.name, b.name) })
+	sep()
+	printFail("%d %s(s) failed", len(sorted), noun)
+	rows := make([][]string, len(sorted))
+	for i, it := range sorted {
+		rows[i] = []string{it.name, it.reason}
+	}
+	printTable([]string{"name", "reason"}, rows, nil)
+	sep()
+}
+
+// closing ends a command that reported its failures as it met them.
+func closing(failed []failedItem) error {
+	printFailedTable("toolchain", failed)
+	if len(failed) > 0 {
+		return errSilent
+	}
+	return nil
 }
 
 // fail reports err and returns the error a command ends with once it has

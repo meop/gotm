@@ -10,54 +10,71 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/meop/golie/fetch"
+	"github.com/meop/golie/journal"
+	"github.com/meop/golie/layout"
+	"github.com/meop/golie/manifest"
 	"github.com/meop/golie/pinned"
 	"github.com/meop/golie/sheesh"
+	"github.com/meop/golie/tidy"
+	"github.com/meop/golie/vers"
 
-	"github.com/meop/golie/fetch"
-	"github.com/meop/golie/shim"
 	"github.com/meop/gotm/internal/config"
 	"github.com/meop/gotm/internal/godl"
 	"github.com/meop/gotm/internal/store"
 )
 
-var force bool
+// reinstall and force are the two flags add and sync share, and they are
+// separate because they are different things to ask for: --reinstall redoes
+// gotm's own work and touches nothing that is not gotm's, while --force is the
+// only way a shim replaces a file gotm did not stamp. Neither implies the
+// other.
+var reinstall, force bool
 
-// change is one toolchain a command is about to move: the pin it is keyed by,
-// what the manifest says of it now (the zero value when it is being added),
-// and the release it is going to.
+func addInstallFlags(cmd *cobra.Command, reinstallUsage string) {
+	cmd.Flags().BoolVarP(&reinstall, "reinstall", "r", false, reinstallUsage)
+	cmd.Flags().BoolVarP(&force, "force", "f", false, "Replace a file in the bin directory that is not a gotm shim")
+}
+
+// change is one toolchain a command is about to move: its manifest key, what
+// it is pinned to, what the manifest says of it now (the zero value when it
+// is being added), and the release it is going to.
 type change struct {
+	key    string
 	pin    string
-	prev   config.Toolchain
+	prev   config.Entry
 	target godl.Release
 }
 
-func (c change) name() string { return shimName(pkgGo, c.pin) }
-
 func newAddCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "add [version...]",
-		Short: "Add a go toolchain: latest, a line (1.26) or one release (1.26.4)",
-		Long: "Add a go toolchain, and keep it beside any already added.\n\n" +
+		Use:     "add [version...]",
+		Aliases: []string{"a", "ad", "in", "install"},
+		Short:   "Add go toolchains: latest, a line (1.26) or one release (1.26.4)",
+		Long: "Add go toolchains, each kept beside any already added.\n\n" +
 			"  gotm add          follow go's newest stable release, as go and gofmt\n" +
-			"  gotm add 1.26     follow the newest 1.26.x, as go1.26 and gofmt1.26\n" +
-			"  gotm add 1.26.4   stay on exactly 1.26.4, as go1.26.4 and gofmt1.26.4",
+			"  gotm add latest   the same, said aloud\n" +
+			"  gotm add 1.26     follow the newest 1.26.x, as go@1.26 and gofmt@1.26\n" +
+			"  gotm add 1.26.4   stay on exactly 1.26.4, as go@1.26.4 and gofmt@1.26.4",
 		RunE: runAdd,
 	}
-	cmd.Flags().BoolVar(&force, "force", false, "Replace a file in the bin directory that is not a gotm shim")
+	addInstallFlags(cmd, "Reinstall even if already installed")
 	return cmd
 }
 
 func newSyncCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:     "sync [version...]",
-		Aliases: []string{"up"},
-		Short:   "Update the added go toolchains to the newest release each pin allows",
+		Aliases: []string{"s", "sy", "up", "update"},
+		Short:   "Sync toolchains to the newest release each pin allows",
 		RunE:    runSync,
 	}
-	cmd.Flags().BoolVar(&force, "force", false, "Replace a file in the bin directory that is not a gotm shim")
+	addInstallFlags(cmd, "Reinstall even if already at latest version")
 	return cmd
 }
 
+// runAdd is ghpm's add with the package left off: no argument is a bare
+// "go", the toolchain that follows go's newest release.
 func runAdd(cmd *cobra.Command, args []string) error {
 	ctx := context.Background()
 	unlock, err := config.AcquireLock()
@@ -75,41 +92,45 @@ func runAdd(cmd *cobra.Command, args []string) error {
 
 	var r resolver
 	var changes []change
-	failed := 0
+	var failed []failedItem
 	for _, arg := range args {
-		pin, err := normalizePin(arg)
+		pin, err := parsePin(arg)
 		if err != nil {
-			printFail("%v", err)
-			failed++
+			printFail("%s: %v", arg, err)
+			failed = append(failed, failedItem{name: arg, reason: err.Error()})
 			continue
 		}
-		if slices.ContainsFunc(changes, func(c change) bool { return c.pin == pin }) {
+		key := keyOf(pin)
+		if slices.ContainsFunc(changes, func(c change) bool { return c.key == key }) {
 			continue
 		}
-		if _, ok := m.Toolchains[pin]; ok {
-			print("%s already added", shimName(pkgGo, pin))
+		prev, exists := m.Extracts[key]
+		if exists && !reinstall {
+			print("%s: already added → %s", key, prev.Version)
 			continue
 		}
 		target, err := r.resolve(ctx, pin)
 		if err != nil {
-			printFail("%s: %v", shimName(pkgGo, pin), err)
-			failed++
+			printFail("%s: %v", key, err)
+			failed = append(failed, failedItem{name: key, reason: err.Error()})
 			continue
 		}
-		changes = append(changes, change{pin: pin, target: target})
+		changes = append(changes, change{key: key, pin: pin, prev: prev, target: target})
 	}
-	if len(changes) > 0 {
-		var rows [][]string
-		for _, c := range changes {
-			rows = append(rows, []string{c.name(), shown(c.target.Version), c.pin})
-		}
-		if gate([]string{"name", "version", "pin"}, rows, []func(string) string{colorfn("info")}, "add go?") {
-			done, bad := applyAll(ctx, m, changes)
-			failed += bad
-			if done > 0 {
-				printPass("added %d toolchain(s)", done)
-				warnPath()
-			}
+	if len(changes) == 0 {
+		return closing(failed)
+	}
+	var rows [][]string
+	for _, c := range changes {
+		rows = append(rows, []string{c.key, godl.Display(c.target.Version), manifest.Pin(c.pin), config.Source})
+	}
+	colors := []func(string) string{nil, colorfn("new"), nil, nil}
+	if gate([]string{"name", "version", "pin", "uri"}, rows, colors, fmt.Sprintf("add %d toolchain(s)", len(changes))) {
+		done, bad := applyAll(ctx, m, changes)
+		failed = append(failed, bad...)
+		if done > 0 {
+			printPass("installed %d toolchain(s)", done)
+			warnPath()
 		}
 	}
 	return closing(failed)
@@ -117,6 +138,7 @@ func runAdd(cmd *cobra.Command, args []string) error {
 
 // runSync updates what was added and nothing else: with no toolchain added it
 // installs none, since which go to follow is a choice add is there to record.
+// A toolchain held to one release has nowhere to move, and is left alone.
 func runSync(cmd *cobra.Command, args []string) error {
 	ctx := context.Background()
 	unlock, err := config.AcquireLock()
@@ -128,61 +150,74 @@ func runSync(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fail("could not load manifest: %v", err)
 	}
-	if len(m.Toolchains) == 0 {
-		print(msgNoneAdded)
+	if len(m.Extracts) == 0 {
+		print(msgNoneInstalled)
 		return nil
 	}
 
-	pins := m.Pins()
-	failed := 0
-	if len(args) > 0 {
-		pins = pins[:0]
-		for _, arg := range args {
-			pin, err := normalizePin(arg)
-			if err != nil {
-				printFail("%v", err)
-				failed++
-				continue
-			}
-			if _, ok := m.Toolchains[pin]; !ok {
-				print("%s not added", shimName(pkgGo, pin))
-				continue
-			}
-			if !slices.Contains(pins, pin) {
-				pins = append(pins, pin)
+	var keys []string
+	var failed []failedItem
+	if len(args) == 0 {
+		for _, key := range m.Keys() {
+			if m.Extracts[key].Pin != manifest.PinFixed {
+				keys = append(keys, key)
 			}
 		}
+	}
+	for _, arg := range args {
+		pin, err := parsePin(arg)
+		if err != nil {
+			printFail("%s: %v", arg, err)
+			failed = append(failed, failedItem{name: arg, reason: err.Error()})
+			continue
+		}
+		key := keyOf(pin)
+		e, ok := m.Extracts[key]
+		if !ok {
+			print("%s: not installed", key)
+			continue
+		}
+		if e.Pin == manifest.PinFixed {
+			print("%s: fixed at %s, skipping", key, e.Version)
+			continue
+		}
+		if !slices.Contains(keys, key) {
+			keys = append(keys, key)
+		}
+	}
+	if len(keys) == 0 {
+		return closing(failed)
 	}
 
 	var r resolver
 	var changes []change
-	for _, pin := range pins {
-		prev := m.Toolchains[pin]
+	for _, key := range keys {
+		_, pin, _ := manifest.ParseKey(key)
+		prev := m.Extracts[key]
 		target, err := r.resolve(ctx, pin)
 		if err != nil {
-			printFail("%s: %v", shimName(pkgGo, pin), err)
-			failed++
+			printFail("%s: %v", key, err)
+			failed = append(failed, failedItem{name: key, reason: err.Error()})
 			continue
 		}
-		// the same release again is a toolchain the disk no longer bears out: a
-		// tree or a shim is missing, and sync puts it back
-		if target.Version != prev.Version || !healthy(prev) {
-			changes = append(changes, change{pin: pin, prev: prev, target: target})
+		if vers.CompareVersions(target.Version, prev.Version) > 0 || reinstall {
+			changes = append(changes, change{key: key, pin: pin, prev: prev, target: target})
 		}
 	}
 	if len(changes) == 0 {
-		if failed == 0 {
-			print("go is up to date")
+		if len(failed) == 0 {
+			print(msgAllUpToDate)
 		}
 		return closing(failed)
 	}
 	var rows [][]string
 	for _, c := range changes {
-		rows = append(rows, []string{c.name(), shown(c.prev.Version), shown(c.target.Version), c.pin})
+		rows = append(rows, []string{c.key, c.prev.Version, godl.Display(c.target.Version), c.prev.Pin, m.Repos[pkgGo]})
 	}
-	if gate([]string{"name", "version", "update", "pin"}, rows, []func(string) string{colorfn("info")}, "update go?") {
+	colors := []func(string) string{nil, colorfn("old"), colorfn("new"), nil, nil}
+	if gate([]string{"name", "version", "update", "pin", "uri"}, rows, colors, fmt.Sprintf("update %d toolchain(s)", len(changes))) {
 		done, bad := applyAll(ctx, m, changes)
-		failed += bad
+		failed = append(failed, bad...)
 		if done > 0 {
 			printPass("updated %d toolchain(s)", done)
 		}
@@ -190,26 +225,24 @@ func runSync(cmd *cobra.Command, args []string) error {
 	return closing(failed)
 }
 
-// closing ends a command that reported its failures as it met them.
-func closing(failed int) error {
-	if failed > 0 {
-		printFail("%d failed", failed)
-		return errSilent
-	}
-	return nil
-}
-
 // applyAll makes each change in turn, after making sure kebab is there to
 // stamp with. One that fails is said and does not stop the rest.
-func applyAll(ctx context.Context, m *config.Manifest, changes []change) (done, failed int) {
-	if err := syncSheesh(ctx); err != nil {
+func applyAll(ctx context.Context, m *config.Manifest, changes []change) (done int, failed []failedItem) {
+	l, err := store.Layout()
+	if err == nil {
+		err = syncSheesh(ctx, l)
+	}
+	if err != nil {
 		printFail("sheesh: %v", err)
-		return 0, len(changes)
+		for _, c := range changes {
+			failed = append(failed, failedItem{name: c.key, reason: fmt.Sprintf("sheesh: %v", err)})
+		}
+		return 0, failed
 	}
 	for _, c := range changes {
-		if err := apply(ctx, m, c); err != nil {
-			printFail("%s: %v", c.name(), err)
-			failed++
+		if err := apply(ctx, m, l, c); err != nil {
+			printFail("%s: %v", c.key, err)
+			failed = append(failed, failedItem{name: c.key, reason: err.Error()})
 			continue
 		}
 		done++
@@ -220,8 +253,8 @@ func applyAll(ctx context.Context, m *config.Manifest, changes []change) (done, 
 // syncSheesh makes sure the vendored kebab and its templates are the ones
 // this build pins, by content. A copy of this very version that does not
 // match is replaced like any other, and said: it was damaged or changed.
-func syncSheesh(ctx context.Context) error {
-	dir, err := store.ShimDir()
+func syncSheesh(ctx context.Context, l layout.Layout) error {
+	dir, err := l.ShimDir()
 	if err != nil {
 		return err
 	}
@@ -231,107 +264,103 @@ func syncSheesh(ctx context.Context) error {
 	})
 }
 
-// apply brings one toolchain to its target release.
+// apply brings one toolchain to its target release, the way ghpm installs a
+// package: the archive into the download cache, unpacked into the install's
+// own extract dir, a shim per command, and then the manifest entry.
 //
-// The manifest is the commit point: it is written only once the tree is
-// unpacked and every shim points into it, and a failure before that puts the
-// shims back on the tree the manifest still names. A tree is shared by every
-// pin that resolves to it, so the old one is deleted only after the commit —
-// that restore needs it — and only when no other pin is still on it.
-func apply(ctx context.Context, m *config.Manifest, c change) error {
-	tree, err := store.ToolchainDir(c.target.Version)
+// The manifest is the commit point. Everything before it is journalled, and a
+// failure rolls the journal back to the release the manifest still names. The
+// old extract dir is removed only after the commit, because that rollback
+// restores from it.
+func apply(ctx context.Context, m *config.Manifest, l layout.Layout, c change) error {
+	version := godl.Display(c.target.Version)
+	file, err := c.target.Archive()
 	if err != nil {
 		return err
 	}
-	unpacked := false
-	if !treePresent(c.target.Version) {
-		if err := fetchTree(ctx, c.name(), c.target, tree); err != nil {
-			return err
-		}
-		unpacked = true
-	}
-	bins, err := treeBins(tree)
-	if err != nil {
-		return err
-	}
-	names, err := stamp(tree, bins, c.pin)
-	if err != nil {
-		// put back what the manifest still describes, and drop what this run
-		// unpacked; a restore that fails is said rather than hidden
-		if c.prev.Version != "" && c.prev.Version != c.target.Version && treePresent(c.prev.Version) {
-			if restoreErr := restore(c); restoreErr != nil {
-				printWarn("%s: could not restore the shims for %s: %v", c.name(), shown(c.prev.Version), restoreErr)
-			}
-		}
-		if unpacked && !m.Uses(c.target.Version, c.pin) {
-			_ = os.RemoveAll(tree)
-		}
-		return err
-	}
-
-	m.Toolchains[c.pin] = config.Toolchain{Version: c.target.Version, Bin: names}
-	if err := config.SaveManifest(m); err != nil {
-		return fmt.Errorf("could not save manifest: %w", err)
-	}
-
-	// after the commit: a shim the new release no longer ships, and the tree
-	// nothing points into any more
-	for _, name := range c.prev.Bin {
-		if !slices.Contains(names, name) {
-			if err := removeShims([]string{name}); err != nil {
-				printWarn("%s: could not remove the shim %s: %v", c.name(), name, err)
-			}
-		}
-	}
-	if c.prev.Version != "" && c.prev.Version != c.target.Version && !m.Uses(c.prev.Version, "") {
-		removeTree(c.name(), c.prev.Version)
-	}
-	return nil
-}
-
-// restore points a toolchain's shims back at the release it was on.
-func restore(c change) error {
-	old, err := store.ToolchainDir(c.prev.Version)
-	if err != nil {
-		return err
-	}
-	bins, err := treeBins(old)
-	if err != nil {
-		return err
-	}
-	_, err = stamp(old, bins, c.pin)
-	return err
-}
-
-func removeTree(name, release string) {
-	tree, err := store.ToolchainDir(release)
-	if err != nil {
-		return
-	}
-	if err := os.RemoveAll(tree); err != nil {
-		printWarn("%s: could not remove %s: %v", name, tree, err)
-	}
-}
-
-// fetchTree downloads a release's archive for this machine, checks it against
-// the checksum go.dev states, and unpacks it as tree. It is unpacked beside
-// tree and renamed in, so tree either is a whole go or is not there.
-func fetchTree(ctx context.Context, name string, release godl.Release, tree string) error {
-	file, err := release.Archive()
-	if err != nil {
-		return err
-	}
-	downloads, err := store.DownloadDir()
+	downloads, err := l.DownloadDir(config.Source, version)
 	if err != nil {
 		return err
 	}
 	archive := filepath.Join(downloads, file.Filename)
-	print("%s: asset fetching [%s]...", name, file.Filename)
-	if err := fetch.Download(ctx, file.URL(), archive, file.SHA256); err != nil {
+	// an archive already in the cache is not fetched again, and says nothing
+	if !cached(archive, file.SHA256) {
+		print("%s: asset fetching [%s]...", c.key, file.Filename)
+		if err := fetch.Download(ctx, file.URL(), archive, file.SHA256); err != nil {
+			return err
+		}
+	}
+	s, err := stamper()
+	if err != nil {
 		return err
 	}
-	defer func() { _ = os.Remove(archive) }()
 
+	tree := l.ExtractPath(c.key, version)
+	oldTree := l.ExtractPath(c.key, c.prev.Version)
+	jrn := &journal.Journal{}
+	rollback := func(err error) error {
+		for _, undo := range jrn.Rollback() {
+			printWarn("%s: could not roll back: %v", c.key, undo)
+		}
+		return err
+	}
+
+	jrn.Did("extract", journal.ExtractUndo(tree, c.prev.Version, version))
+	if err := unpack(archive, tree); err != nil {
+		return rollback(err)
+	}
+	keys, err := treeBins(tree)
+	if err != nil {
+		return rollback(err)
+	}
+	bins := make(map[string]string, len(keys))
+	for _, binKey := range keys {
+		name := manifest.ShimName(c.key, filepath.Base(binKey))
+		print("%s: bin found [%s]", c.key, binKey)
+		oldSource := ""
+		if old := c.prev.Bin[name]; old != "" {
+			oldSource = filepath.Join(oldTree, filepath.FromSlash(old))
+		}
+		jrn.Did("shim "+name, journal.ShimUndo(s, name, oldSource))
+		if err := s.Create(name, filepath.Join(tree, filepath.FromSlash(binKey)), force); err != nil {
+			return rollback(fmt.Errorf("%s: could not create shim: %w", name, err))
+		}
+		bins[name] = binKey
+	}
+
+	m.Repos[pkgGo] = config.Source
+	m.Extracts[c.key] = config.Entry{Pin: manifest.Pin(c.pin), Version: version, Assets: []string{file.Filename}, Bin: bins}
+	if err := config.SaveManifest(m); err != nil {
+		m.Extracts[c.key] = c.prev
+		if c.prev.Version == "" {
+			m.RemoveExtract(c.key)
+		}
+		return rollback(fmt.Errorf("could not save manifest: %w", err))
+	}
+
+	// after the commit: a shim the new release no longer ships, and the
+	// release this one replaced
+	for name := range c.prev.Bin {
+		if _, ok := bins[name]; !ok {
+			if err := s.Remove(name); err != nil {
+				printWarn("%s: could not remove stale shim %s: %v", c.key, name, err)
+			}
+		}
+	}
+	if c.prev.Version != "" && c.prev.Version != version {
+		if err := tidy.PruneExtract(oldTree, l.ExtractsDir()); err != nil {
+			printWarn("%s: could not remove %s: %v", c.key, oldTree, err)
+		}
+	}
+	return nil
+}
+
+// unpack makes tree the go the archive holds. It is unpacked beside tree and
+// renamed in, so tree either is a whole go or is not there.
+func unpack(archive, tree string) error {
+	if err := os.MkdirAll(filepath.Dir(tree), 0755); err != nil {
+		return err
+	}
 	staging := tree + ".tmp"
 	if err := os.RemoveAll(staging); err != nil {
 		return err
@@ -341,7 +370,6 @@ func fetchTree(ctx context.Context, name string, release godl.Release, tree stri
 		_ = os.RemoveAll(staging)
 		return err
 	}
-	// a tree left without its go command is a broken unpack this replaces
 	if err := os.RemoveAll(tree); err != nil {
 		_ = os.RemoveAll(staging)
 		return err
@@ -353,27 +381,13 @@ func fetchTree(ctx context.Context, name string, release godl.Release, tree stri
 	return nil
 }
 
-// stamp points a shim for each of a tree's commands at it, named for the
-// pin, and returns the shim names.
-func stamp(tree string, bins []string, pin string) ([]string, error) {
-	s, err := stamper()
-	if err != nil {
-		return nil, err
-	}
-	names := make([]string, 0, len(bins))
-	for _, bin := range bins {
-		name := shimName(bin, pin)
-		if err := s.Create(shim.ExeName(name), filepath.Join(tree, "bin", shim.ExeName(bin)), force); err != nil {
-			return nil, fmt.Errorf("shim %s: %w", name, err)
-		}
-		names = append(names, name)
-	}
-	return names, nil
-}
-
 // warnPath says so when the shims were stamped somewhere PATH does not reach.
 func warnPath() {
-	binDir, err := store.BinDir()
+	l, err := store.Layout()
+	if err != nil {
+		return
+	}
+	binDir, err := l.BinDir()
 	if err != nil {
 		return
 	}

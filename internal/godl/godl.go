@@ -9,7 +9,8 @@ import (
 	"fmt"
 	"net/http"
 	"runtime"
-	"sort"
+	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -106,10 +107,106 @@ func newest(releases []Release, keep func(Release) bool) (Release, error) {
 	if len(kept) == 0 {
 		return Release{}, fmt.Errorf("go has no matching release")
 	}
-	sort.SliceStable(kept, func(i, j int) bool {
-		return vers.CompareVersions(kept[i].Version, kept[j].Version) > 0
-	})
+	slices.SortStableFunc(kept, byNewest)
 	return kept[0], nil
+}
+
+// order is what a release sorts by: its numbers, and whatever follows them
+// ("rc1"), which is nothing for a stable release. vers compares numbers only,
+// and reads "1.28rc1" as far as its 1.
+func order(version string) (nums [3]int, pre string) {
+	rest := Display(version)
+	for i := range nums {
+		end := 0
+		for end < len(rest) && rest[end] >= '0' && rest[end] <= '9' {
+			end++
+		}
+		nums[i], _ = strconv.Atoi(rest[:end])
+		rest = rest[end:]
+		if !strings.HasPrefix(rest, ".") {
+			break
+		}
+		rest = rest[1:]
+	}
+	return nums, rest
+}
+
+// byNewest sorts releases newest first, a release above its own candidates
+// and betas, and a later candidate above an earlier one.
+func byNewest(a, b Release) int {
+	an, ap := order(a.Version)
+	bn, bp := order(b.Version)
+	if c := slices.Compare(bn[:], an[:]); c != 0 || ap == bp {
+		return c
+	}
+	if ap == "" || bp == "" {
+		return len(ap) - len(bp)
+	}
+	word := func(pre string) (string, int) {
+		letters := strings.TrimRight(pre, "0123456789")
+		n, _ := strconv.Atoi(pre[len(letters):])
+		return letters, n
+	}
+	aw, ai := word(ap)
+	bw, bi := word(bp)
+	if c := strings.Compare(bw, aw); c != 0 {
+		return c
+	}
+	return bi - ai
+}
+
+// Line is the line a release is of: its first two numbers, "1.26" for
+// go1.26.4 and for go1.26rc1.
+func Line(version string) string {
+	nums, _ := order(version)
+	return fmt.Sprintf("%d.%d", nums[0], nums[1])
+}
+
+// StartsWith reports whether term starts version at the end of a number:
+// "1.2" starts 1.2, 1.2.1 and 1.2rc1, and never 1.26. Both are spelled
+// without go.dev's "go".
+func StartsWith(version, term string) bool {
+	if term == "" || !strings.HasPrefix(version, term) {
+		return false
+	}
+	return len(version) == len(term) || version[len(term)] < '0' || version[len(term)] > '9'
+}
+
+// Lines is the newest stable release of each line, newest line first: what
+// there is to follow.
+func Lines(releases []Release) []Release {
+	sorted := slices.Clone(releases)
+	slices.SortStableFunc(sorted, byNewest)
+	var lines []Release
+	seen := map[string]bool{}
+	for _, r := range sorted {
+		if line := Line(r.Version); r.Stable && !seen[line] {
+			seen[line] = true
+			lines = append(lines, r)
+		}
+	}
+	return lines
+}
+
+// Found is every release a term names, newest first: the one "latest"
+// resolves to, or all that the term starts (StartsWith), candidates and betas
+// among them, since naming one is how it is added.
+func Found(releases []Release, term string) []Release {
+	if term == config.PinLatest {
+		r, err := Resolve(releases, term)
+		if err != nil {
+			return nil
+		}
+		return []Release{r}
+	}
+	var found []Release
+	for _, r := range releases {
+		if StartsWith(Display(r.Version), term) {
+			found = append(found, r)
+		}
+	}
+	slices.SortStableFunc(found, byNewest)
+	return found
 }
 
 // NeedsAll reports whether resolving pin takes the full release list rather

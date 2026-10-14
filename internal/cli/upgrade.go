@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"fmt"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -15,10 +16,11 @@ var self = upgrade.Self{Name: "gotm", ReleasesURL: "https://github.com/meop/gotm
 
 func newUpgradeCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:   "upgrade",
-		Short: "Upgrade gotm itself",
-		Args:  cobra.NoArgs,
-		RunE:  runUpgrade,
+		Use:     "upgrade",
+		Aliases: []string{"ug", "upg"},
+		Short:   "Upgrade gotm to its latest release",
+		Args:    cobra.NoArgs,
+		RunE:    runUpgrade,
 	}
 }
 
@@ -26,25 +28,31 @@ func newUpgradeCmd() *cobra.Command {
 // and the vendored sheesh is pinned to whatever the new gotm was built to run.
 func runUpgrade(cmd *cobra.Command, args []string) error {
 	ctx := context.Background()
+	failed := func(err error) error {
+		printFail("gotm: %v", err)
+		printFailedTable("component", []failedItem{{name: "gotm", reason: err.Error()}})
+		return errSilent
+	}
+
 	tag, err := self.LatestTag(ctx)
 	if err != nil {
-		return fail("%v", err)
+		return failed(err)
 	}
 	latest := strings.TrimPrefix(tag, "v")
 	if latest == strings.TrimPrefix(version, "v") {
-		print("gotm is up to date")
+		print(msgGotmUpToDate)
 		return nil
 	}
 	if !gate(
 		[]string{"name", "version", "update"},
 		[][]string{{"gotm", version, latest}},
-		[]func(string) string{colorfn("info")},
-		"upgrade gotm?",
+		[]func(string) string{nil, colorfn("old"), colorfn("new")},
+		fmt.Sprintf("upgrade gotm to %s", latest),
 	) {
 		return nil
 	}
 	if err := self.Install(ctx, tag, func(asset string) { print("gotm: asset fetching [%s]...", asset) }); err != nil {
-		return fail("gotm: %v", err)
+		return failed(err)
 	}
 	printPass("upgraded gotm to %s", latest)
 	return nil

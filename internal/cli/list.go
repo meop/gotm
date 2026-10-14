@@ -2,41 +2,46 @@ package cli
 
 import (
 	"context"
-	"strings"
 
 	"github.com/spf13/cobra"
 
-	"github.com/meop/gotm/internal/config"
-)
+	"github.com/meop/golie/manifest"
+	"github.com/meop/golie/vers"
 
-const msgNoneAdded = "no go added"
+	"github.com/meop/gotm/internal/config"
+	"github.com/meop/gotm/internal/godl"
+)
 
 func newListCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:     "list",
-		Aliases: []string{"ls"},
-		Short:   "Show the added go toolchains",
-		Args:    cobra.NoArgs,
+		Use:     "list [version...]",
+		Aliases: []string{"l", "li", "ls"},
+		Short:   "List installed toolchains, optionally filtered by version",
+		Args:    cobra.ArbitraryArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			m, err := config.LoadManifest()
 			if err != nil {
 				return fail("could not load manifest: %v", err)
 			}
-			// a pin is what every other command takes, so it is the name a
-			// script is given
-			if printNameList(m.Pins()) {
+			if len(m.Extracts) == 0 {
+				print(msgNoneInstalled)
 				return nil
 			}
-			if len(m.Toolchains) == 0 {
-				print(msgNoneAdded)
+			keys := findKeys(m, args)
+			if len(keys) == 0 {
+				print(msgNoMatch)
+				return nil
+			}
+			if printNameList(keys) {
 				return nil
 			}
 			var rows [][]string
-			for _, pin := range m.Pins() {
-				tc := m.Toolchains[pin]
-				rows = append(rows, []string{shimName(pkgGo, pin), shown(tc.Version), pin, strings.Join(tc.Bin, " ")})
+			for _, key := range keys {
+				e := m.Extracts[key]
+				rows = entryRows(rows, []string{key, e.Version, e.Pin, m.Repos[pkgGo]}, e)
 			}
-			printTable([]string{"name", "version", "pin", "bin"}, rows, []func(string) string{colorfn("info")})
+			colors := []func(string) string{nil, colorfn("info"), nil, nil, nil, nil}
+			printTable([]string{"name", "version", "pin", "uri", "type", "target"}, rows, colors)
 			return nil
 		},
 	}
@@ -46,40 +51,59 @@ func newListCmd() *cobra.Command {
 
 func newOutdatedCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "outdated",
-		Short: "Show the added go toolchains a newer release is out for",
-		Args:  cobra.NoArgs,
+		Use:     "outdated [version...]",
+		Aliases: []string{"o", "ou", "out", "stale"},
+		Short:   "List toolchains with newer releases available, optionally filtered by version",
+		Args:    cobra.ArbitraryArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			m, err := config.LoadManifest()
 			if err != nil {
 				return fail("could not load manifest: %v", err)
 			}
-			if len(m.Toolchains) == 0 {
-				print(msgNoneAdded)
+			if len(m.Extracts) == 0 {
+				print(msgNoneInstalled)
+				return nil
+			}
+			matched := findKeys(m, args)
+			if len(matched) == 0 {
+				print(msgNoMatch)
 				return nil
 			}
 			var r resolver
 			var rows [][]string
-			var pins []string
-			for _, pin := range m.Pins() {
-				tc := m.Toolchains[pin]
+			var keys []string
+			hadErrors := false
+			for _, key := range matched {
+				e := m.Extracts[key]
+				// held to one release, so there is nowhere newer for it to go
+				if e.Pin == manifest.PinFixed {
+					continue
+				}
+				_, pin, _ := manifest.ParseKey(key)
 				target, err := r.resolve(context.Background(), pin)
 				if err != nil {
-					return fail("%s: %v", shimName(pkgGo, pin), err)
+					printFail("%s: %v", key, err)
+					hadErrors = true
+					continue
 				}
-				if target.Version != tc.Version {
-					rows = append(rows, []string{shimName(pkgGo, pin), shown(tc.Version), shown(target.Version), pin})
-					pins = append(pins, pin)
+				if vers.CompareVersions(target.Version, e.Version) > 0 {
+					rows = entryRows(rows, []string{key, e.Version, godl.Display(target.Version), e.Pin, m.Repos[pkgGo]}, e)
+					keys = append(keys, key)
 				}
 			}
-			if printNameList(pins) {
-				return nil
+			switch {
+			case printNameList(keys):
+			case len(rows) == 0:
+				if !hadErrors {
+					print(msgAllUpToDate)
+				}
+			default:
+				colors := []func(string) string{nil, colorfn("old"), colorfn("new"), nil, nil, nil, nil}
+				printTable([]string{"name", "version", "update", "pin", "uri", "type", "target"}, rows, colors)
 			}
-			if len(rows) == 0 {
-				print("go is up to date")
-				return nil
+			if hadErrors {
+				return errSilent
 			}
-			printTable([]string{"name", "version", "update", "pin"}, rows, []func(string) string{colorfn("info")})
 			return nil
 		},
 	}

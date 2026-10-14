@@ -1,30 +1,33 @@
 package cli
 
 import (
+	"fmt"
+	"os"
 	"slices"
+	"strings"
 
 	"github.com/spf13/cobra"
 
-	"github.com/meop/golie/shim"
+	"github.com/meop/golie/tidy"
 
 	"github.com/meop/gotm/internal/config"
+	"github.com/meop/gotm/internal/store"
 )
 
 func newRemoveCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:     "remove <version...>",
-		Aliases: []string{"rm"},
-		Short:   "Remove added go toolchains",
+		Use:     "remove <version> [version...]",
+		Aliases: []string{"r", "rm", "rem", "un", "unin", "uninstall"},
+		Short:   "Remove installed toolchains",
 		Args:    cobra.MinimumNArgs(1),
 		RunE:    runRemove,
 	}
 }
 
-// runRemove deletes a toolchain's shims, then its tree, and only then forgets
-// it. Nothing here can be rolled back, so that order is the safety: a shim
-// that will not delete leaves the manifest describing a toolchain that is
-// still fully there, for the retry to finish. A tree another pin is also on
-// stays.
+// runRemove deletes a toolchain's shims, then its extract dir, and only then
+// forgets it. Nothing here can be rolled back, so that order is the safety: a
+// shim that will not delete leaves the manifest describing a toolchain that
+// is still fully there, for the retry to finish.
 func runRemove(cmd *cobra.Command, args []string) error {
 	unlock, err := config.AcquireLock()
 	if err != nil {
@@ -35,67 +38,76 @@ func runRemove(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fail("could not load manifest: %v", err)
 	}
+	l, err := store.Layout()
+	if err != nil {
+		return fail("%v", err)
+	}
 
-	var pins []string
-	failed := 0
+	var keys []string
+	var failed []failedItem
 	for _, arg := range args {
-		pin, err := normalizePin(arg)
+		pin, err := parsePin(arg)
 		if err != nil {
-			printFail("%v", err)
-			failed++
+			printFail("%s: %v", arg, err)
+			failed = append(failed, failedItem{name: arg, reason: err.Error()})
 			continue
 		}
-		if _, ok := m.Toolchains[pin]; !ok {
-			print("%s not added", shimName(pkgGo, pin))
+		key := keyOf(pin)
+		if _, ok := m.Extracts[key]; !ok {
+			print("%s: not installed", key)
 			continue
 		}
-		if !slices.Contains(pins, pin) {
-			pins = append(pins, pin)
+		if !slices.Contains(keys, key) {
+			keys = append(keys, key)
 		}
 	}
-	if len(pins) == 0 {
+	if len(keys) == 0 {
 		return closing(failed)
 	}
 	var rows [][]string
-	for _, pin := range pins {
-		rows = append(rows, []string{shimName(pkgGo, pin), shown(m.Toolchains[pin].Version), pin})
+	for _, key := range keys {
+		e := m.Extracts[key]
+		rows = append(rows, []string{key, e.Version, e.Pin, m.Repos[pkgGo], strings.Join(e.Assets, ", ")})
 	}
-	if !gate([]string{"name", "version", "pin"}, rows, []func(string) string{colorfn("info")}, "remove go?") {
+	colors := []func(string) string{nil, colorfn("info"), nil, nil, nil}
+	if !gate([]string{"name", "version", "pin", "uri", "assets"}, rows, colors, fmt.Sprintf("uninstall %d toolchain(s)", len(keys))) {
 		return closing(failed)
 	}
 
+	s, err := stamper()
+	if err != nil {
+		return fail("%v", err)
+	}
 	done := 0
-	for _, pin := range pins {
-		name, tc := shimName(pkgGo, pin), m.Toolchains[pin]
-		if err := removeShims(tc.Bin); err != nil {
-			printFail("%s: %v", name, err)
-			failed++
+	for _, key := range keys {
+		e := m.Extracts[key]
+		reason := ""
+		for name := range e.Bin {
+			if err := s.Remove(name); err != nil {
+				printFail("%s: %s: could not remove shim: %v", key, name, err)
+				if reason == "" {
+					reason = fmt.Sprintf("%s: could not remove shim: %v", name, err)
+				}
+			}
+		}
+		if reason == "" {
+			if err := tidy.PruneExtract(l.ExtractPath(key, e.Version), l.ExtractsDir()); err != nil && !os.IsNotExist(err) {
+				reason = fmt.Sprintf("could not remove extract dir: %v", err)
+				printFail("%s: %s", key, reason)
+			}
+		}
+		if reason != "" {
+			failed = append(failed, failedItem{name: key, reason: reason})
 			continue
 		}
-		if !m.Uses(tc.Version, pin) {
-			removeTree(name, tc.Version)
-		}
-		delete(m.Toolchains, pin)
+		m.RemoveExtract(key)
 		if err := config.SaveManifest(m); err != nil {
 			return fail("could not save manifest: %v", err)
 		}
 		done++
 	}
 	if done > 0 {
-		printPass("removed %d toolchain(s)", done)
+		printPass("uninstalled %d toolchain(s)", done)
 	}
 	return closing(failed)
-}
-
-func removeShims(names []string) error {
-	s, err := stamper()
-	if err != nil {
-		return err
-	}
-	for _, name := range names {
-		if err := s.Remove(shim.ExeName(name)); err != nil {
-			return err
-		}
-	}
-	return nil
 }

@@ -27,37 +27,81 @@ it installs.
 
 ```sh
 gotm add             # follow go's newest stable release, as go and gofmt
-gotm add 1.26        # follow the newest 1.26.x, as go1.26 and gofmt1.26
-gotm add 1.26.4      # stay on exactly 1.26.4, as go1.26.4 and gofmt1.26.4
-gotm sync            # update every added toolchain to the newest release its pin allows
-gotm sync 1.26       # update only that one
-gotm list            # the added toolchains, their pins, and their commands
-gotm list -l         # just the pins, one per line, for a script
+gotm add latest      # the same, said aloud
+gotm add 1.26        # follow the newest 1.26.x, as go@1.26 and gofmt@1.26
+gotm add 1.26.4      # stay on exactly 1.26.4, as go@1.26.4 and gofmt@1.26.4
+gotm add latest 1.26 # add several at once
+gotm add --reinstall 1.26 # reinstall even if already installed
+
+gotm find            # the newest release of each line go has for this machine
+gotm find 1.26       # every 1.26 release, candidates and betas among them
+gotm list            # installed toolchains, their pins, and their commands
+gotm list 1.26       # only the ones a term starts the pin or release of
+gotm list -l         # just the names, one per line, for a script
 gotm outdated        # the ones a newer release is out for
+
+gotm sync            # update every toolchain that follows latest or a line
+gotm sync 1.26       # update only that one
+gotm sync --reinstall # reinstall even if already at latest version
+
 gotm remove 1.26     # remove one
+gotm tidy            # remove unused cached archives and orphaned items
+gotm tidy --all      # remove all cached archives
+
 gotm upgrade         # upgrade gotm itself
 ```
 
-| Flag | What it does |
-|------|--------------|
-| `--dry-run`, `-n` | Show what would change, and change nothing |
-| `--yes`, `-y` | Answer yes to the confirmation |
+gotm is [ghpm](https://github.com/meop/ghpm) for a single package. The
+package is always `go`, so a command is given only the pin: `gotm add 1.26` is
+what `ghpm add go@1.26` would be. The key ghpm would use (`go`, `go@1.26`) is
+what `list` prints, and is taken wherever a pin is.
+
+### Global flags
+
+| Flag | Description |
+|---|---|
+| `--dry-run`, `-n` | Print what would be done without executing |
+| `--yes`, `-y` | Skip confirmation prompts |
 | `--quiet`, `-q` | Print only tables and errors |
 | `--non-interactive` | Never prompt; for scripted use |
-| `--long-names`, `-l` | On `list` and `outdated`: print pins only, one per line, and nothing when there are none |
-| `--short-names`, `-s` | On `list` and `outdated`: print pins only, space-separated on one line, and nothing when there are none |
-| `--force` | On `add` and `sync`: replace a file in `~/.gotm/bin` that gotm did not put there |
+
+### Per-command flags
+
+| Flag | Commands | Description |
+|---|---|---|
+| `--reinstall`, `-r` | `add`, `sync` | Reinstall even if already installed / already at latest version |
+| `--force`, `-f` | `add`, `sync` | Replace a file in `~/.gotm/bin` that gotm did not put there |
+| `--all` | `tidy` | Remove all cached archives regardless of installation status |
+| `--long-names`, `-l` | `list`, `find`, `outdated` | Print names only, one per line, and nothing when there are none |
+| `--short-names`, `-s` | `list`, `find`, `outdated` | Print names only, space-separated on one line, and nothing when there are none |
+
+### Version pinning
+
+| Syntax | Name | Meaning | Updates |
+|---|---|---|---|
+| `gotm add` | `go` | Latest version | Yes — `gotm sync` fetches the newest stable release |
+| `gotm add 1` | `go@1` | Latest 1.x | Yes — within major only |
+| `gotm add 1.26` | `go@1.26` | Latest 1.26.x | Yes — within major.minor only |
+| `gotm add 1.26.4` | `go@1.26.4` | Exact version | Never — static pin |
+
+A pinned toolchain keeps the pin as its name (`go@1.26`, not `go@1.26.9`);
+`gotm list` shows the version installed. Its commands carry the pin too
+(`go@1.26`, `gofmt@1.26`), so toolchains sit beside each other and none
+replaces another. There is no switching between them and no environment to
+set: you run the one you mean.
 
 ## Behavior
 
 - Nothing is installed until you add it, and `sync` only updates what was added.
-- Added toolchains sit beside each other. The one following `latest` is `go` and
-  `gofmt`; any other carries its pin in its name, so `go1.26` never replaces
-  `go`. There is no switching between them and no environment to set: you run
-  the one you mean.
+- `find` lists only releases with an archive for this machine, which are the
+  ones `add` can install here.
 - Updating a toolchain unpacks the new release beside the old, points its
-  commands at it, and only then removes the old one.
-- Every archive is checked against the sha256 go.dev states before it is unpacked.
+  commands at it, and only then removes the old one. If any step fails, the
+  toolchain is put back as it was.
+- Every archive is checked against the sha256 go.dev states before it is
+  unpacked. It stays in `~/.gotm/download` while a toolchain is on that
+  release, so a second pin on the same release is not downloaded again;
+  `gotm tidy` removes the ones nothing is on.
 - The commands in `~/.gotm/bin` are small [sheesh](https://github.com/meop/sheesh)
   shims that run the real ones where they are unpacked, so there are no
   symlinks or junctions.

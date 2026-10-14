@@ -6,10 +6,13 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/meop/golie/ui"
+
+	"github.com/meop/gotm/internal/config"
 )
 
-// pkgGo is the one package gotm manages, as its tables name it.
-const pkgGo = "go"
+// pkgGo is the one package gotm manages: the name ghpm would be given, and
+// the one every gotm command leaves off.
+const pkgGo = config.Package
 
 var (
 	version        = "dev"
@@ -24,6 +27,8 @@ func SetVersion(v string) { version = v }
 var roleColors = map[string]color.Attribute{
 	"fail": color.FgRed,
 	"info": color.FgBlue,
+	"new":  color.FgCyan,
+	"old":  color.FgMagenta,
 	"pass": color.FgGreen,
 	"warn": color.FgYellow,
 }
@@ -57,6 +62,28 @@ func NewRootCmd() *cobra.Command {
 		},
 	}
 
+	root.SetUsageTemplate(`Usage:{{if .Runnable}}
+  {{.UseLine}}{{end}}{{if and (not .Runnable) .HasAvailableSubCommands}}
+  {{.CommandPath}} [command]{{end}}{{if gt (len .Aliases) 0}}
+
+Aliases:
+  {{.NameAndAliases}}{{end}}{{if .HasExample}}
+
+Examples:
+{{.Example}}{{end}}{{if .HasAvailableSubCommands}}{{$cmds := .Commands}}{{if eq (len .Groups) 0}}
+
+Available Commands:{{range $cmds}}{{if (or .IsAvailableCommand (eq .Name "help"))}}
+  {{rpad .Name .NamePadding }} {{.Short}}{{end}}{{end}}{{end}}{{end}}{{if .HasAvailableLocalFlags}}
+
+Flags:
+{{.LocalFlags.FlagUsages | trimTrailingWhitespaces}}{{end}}{{if .HasAvailableInheritedFlags}}
+
+Global Flags:
+{{.InheritedFlags.FlagUsages | trimTrailingWhitespaces}}{{end}}{{if .HasAvailableSubCommands}}
+
+Use "{{.CommandPath}} [command] --help" for more information about a command.{{end}}
+`)
+
 	root.Version = version
 	root.SetVersionTemplate("{{.Version}}\n")
 	root.Flags().Bool("version", false, "Print gotm version")
@@ -70,10 +97,12 @@ func NewRootCmd() *cobra.Command {
 
 	root.AddCommand(
 		newAddCmd(),
+		newFindCmd(),
 		newListCmd(),
 		newOutdatedCmd(),
 		newRemoveCmd(),
 		newSyncCmd(),
+		newTidyCmd(),
 		newUpgradeCmd(),
 	)
 
