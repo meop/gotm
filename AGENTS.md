@@ -191,7 +191,15 @@ cache.
 **Upgrade** — gotm and nothing else. The newest release is read from where
 `releases/latest` redirects, the archive is checked against that release's
 `SHA256SUMS`, and the running binary is replaced (moved aside first on
-Windows, which will not overwrite a running executable).
+Windows, which will not overwrite a running executable). Only the gotm in
+`~/.gotm/bin`, where the install script puts it, is replaced, reached directly
+or through a symlink. One that runs from anywhere else — ghpm's, `go
+install`'s, a build — was put there by something else, which is what upgrades
+it: it is refused in one line (`✗ gotm: cannot upgrade itself, running from
+<path>`, off `golie/upgrade`'s `Check`) before the release page is asked
+anything. Everything else such a gotm does is unchanged: its
+state is still `~/.gotm` and its shims still go in `~/.gotm/bin`, it is only
+not in there itself.
 
 **Vendored sheesh** — golie pins it: a version and the sha256 of each
 platform's archive and of every file kept from it. Before anything is stamped,

@@ -106,6 +106,9 @@ set: you run the one you mean.
   shims that run the real ones where they are unpacked, so there are no
   symlinks or junctions.
 - A release candidate is installed only when you name it (`gotm add 1.28rc1`).
+- `gotm upgrade` replaces only the gotm the install script put in
+  `~/.gotm/bin`. One installed another way (ghpm, `go install`) works the
+  same and keeps the same `~/.gotm`, but is upgraded by what installed it.
 
 A project whose `go.mod` asks for a newer go than the one you run is still
 built by a toolchain go downloads for itself; that is go's doing, not gotm's.
