@@ -251,17 +251,14 @@ func applyAll(ctx context.Context, m *config.Manifest, changes []change) (done i
 }
 
 // syncSheesh makes sure the vendored kebab and its templates are the ones
-// this build pins, by content. A copy of this very version that does not
-// match is replaced like any other, and said: it was damaged or changed.
+// this build pins, by content. It says nothing: sheesh is gotm's internals,
+// not something its user asked for, so only a failure is ever shown.
 func syncSheesh(ctx context.Context, l layout.Layout) error {
 	dir, err := l.ShimDir()
 	if err != nil {
 		return err
 	}
-	return sheesh.Sync(ctx, dir, pinned.Options{
-		Fetching:  func(asset string) { print("sheesh: asset fetching [%s]...", asset) },
-		Replacing: func(file string) { printWarn("sheesh: %s does not match its pin, replacing", file) },
-	})
+	return sheesh.Sync(ctx, dir, pinned.Options{})
 }
 
 // apply brings one toolchain to its target release, the way ghpm installs a
