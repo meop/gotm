@@ -207,9 +207,8 @@ the vendored files are checked against that pin by content, not by the version
 `kebab` reports, so a copy from another gotm, a damaged one and a swapped one
 all fail the same check and are replaced from a plain download of the pinned
 release. The sync is **silent** — on a match, a fetch and a replace alike —
-just as wut says nothing when it syncs its nushell: sheesh is gotm's
-internals, and a line about it would only confuse someone who asked for a
-toolchain. Only a failure is shown. Never wire `pinned.Options.Fetching` or
+since sheesh is internals, and a line about it would only confuse someone who
+asked for a toolchain. Only a failure is shown. Never wire `pinned.Options.Fetching` or
 `Replacing` to a print. Taking a newer golie is the only way it moves; it is
 not part of `upgrade`.
 
