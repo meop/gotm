@@ -72,18 +72,15 @@ func printNameList(names []string) bool {
 	return true
 }
 
-// -q ("quiet") suppresses status chatter (print, printWarn, printPass) but
-// never the substantive content: printFail (errors), and printTable (which
-// backs both gate previews and the actual result of read-only commands).
 func print(format string, args ...any) {
-	if quiet || namesOnly() {
+	if namesOnly() {
 		return
 	}
 	ui.Out(format, args...)
 }
 
 func printWarn(format string, args ...any) {
-	if quiet || namesOnly() {
+	if namesOnly() {
 		return
 	}
 	ui.Warn(format, args...)
@@ -92,7 +89,7 @@ func printWarn(format string, args ...any) {
 func printFail(format string, args ...any) { ui.Fail(format, args...) }
 
 func printPass(format string, args ...any) {
-	if quiet || namesOnly() {
+	if namesOnly() {
 		return
 	}
 	ui.Pass(format, args...)

@@ -17,7 +17,7 @@ const pkgGo = config.Package
 var (
 	version        = "dev"
 	dryRun         bool
-	quiet          bool
+	verbose        bool
 	yes            bool
 	nonInteractive bool
 )
@@ -57,6 +57,7 @@ func NewRootCmd() *cobra.Command {
 		},
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 			ui.SetNonInteractive(nonInteractive)
+			ui.SetVerbose(verbose)
 			ui.SetColorResolver(colorfn)
 			return nil
 		},
@@ -89,7 +90,7 @@ Use "{{.CommandPath}} [command] --help" for more information about a command.{{e
 	root.Flags().Bool("version", false, "Print gotm version")
 
 	root.PersistentFlags().BoolVarP(&dryRun, "dry-run", "n", false, "Print execution only without running")
-	root.PersistentFlags().BoolVarP(&quiet, "quiet", "q", false, "Suppress non-error output")
+	root.PersistentFlags().BoolVarP(&verbose, "verbose", "v", false, "Print the checks and syncs of gotm's vendored tools")
 	root.PersistentFlags().BoolVarP(&yes, "yes", "y", false, "Yes for confirmation prompts")
 	root.PersistentFlags().BoolVar(&nonInteractive, "non-interactive", false, "Never prompt; for scripted use")
 

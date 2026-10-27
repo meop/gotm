@@ -251,8 +251,7 @@ func applyAll(ctx context.Context, m *config.Manifest, changes []change) (done i
 }
 
 // syncSheesh makes sure the vendored kebab and its templates are the ones
-// this build pins, by content. It says nothing: sheesh is internals,
-// not something its user asked for, so only a failure is ever shown.
+// this build pins, by content.
 func syncSheesh(ctx context.Context, l layout.Layout) error {
 	dir, err := l.ShimDir()
 	if err != nil {
