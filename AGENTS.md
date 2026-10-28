@@ -26,6 +26,11 @@ Never weaken or bypass this guard: `sync`, `remove` and `tidy` delete toolchains
 `GOTM_TEST_HOME` also redirects the real binary, which is how to try a change
 by hand without touching `~/.gotm`.
 
+## Comments
+
+No comment explains why code does what it does where a unit test can show it: the test is the explanation, and it
+fails when the reasoning stops holding. A comment is only for what no test can show.
+
 ## Keeping this file current
 
 Update this file when a package is added, removed or renamed, when the manifest
