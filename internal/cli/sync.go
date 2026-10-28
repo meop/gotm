@@ -15,9 +15,9 @@ import (
 	"github.com/meop/golie/layout"
 	"github.com/meop/golie/manifest"
 	"github.com/meop/golie/pinned"
-	"github.com/meop/golie/sheesh"
 	"github.com/meop/golie/tidy"
 	"github.com/meop/golie/vers"
+	"github.com/meop/golie/wedge"
 
 	"github.com/meop/gotm/internal/config"
 	"github.com/meop/gotm/internal/godl"
@@ -225,17 +225,17 @@ func runSync(cmd *cobra.Command, args []string) error {
 	return closing(failed)
 }
 
-// applyAll makes each change in turn, after making sure kebab is there to
+// applyAll makes each change in turn, after making sure mallet is there to
 // stamp with. One that fails is said and does not stop the rest.
 func applyAll(ctx context.Context, m *config.Manifest, changes []change) (done int, failed []failedItem) {
 	l, err := store.Layout()
 	if err == nil {
-		err = syncSheesh(ctx, l)
+		err = syncWedge(ctx, l)
 	}
 	if err != nil {
-		printFail("sheesh: %v", err)
+		printFail("wedge: %v", err)
 		for _, c := range changes {
-			failed = append(failed, failedItem{name: c.key, reason: fmt.Sprintf("sheesh: %v", err)})
+			failed = append(failed, failedItem{name: c.key, reason: fmt.Sprintf("wedge: %v", err)})
 		}
 		return 0, failed
 	}
@@ -250,14 +250,14 @@ func applyAll(ctx context.Context, m *config.Manifest, changes []change) (done i
 	return done, failed
 }
 
-// syncSheesh makes sure the vendored kebab and its templates are the ones
+// syncWedge makes sure the vendored mallet and its templates are the ones
 // this build pins, by content.
-func syncSheesh(ctx context.Context, l layout.Layout) error {
+func syncWedge(ctx context.Context, l layout.Layout) error {
 	dir, err := l.ShimDir()
 	if err != nil {
 		return err
 	}
-	return sheesh.Sync(ctx, dir, pinned.Options{})
+	return wedge.Sync(ctx, dir, pinned.Options{})
 }
 
 // apply brings one toolchain to its target release, the way ghpm installs a

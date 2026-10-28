@@ -50,11 +50,11 @@ func stamper() (shim.Stamper, error) {
 	if err != nil {
 		return shim.Stamper{}, err
 	}
-	kebabDir, err := l.ShimDir()
+	malletDir, err := l.ShimDir()
 	if err != nil {
 		return shim.Stamper{}, err
 	}
-	return shim.Stamper{Tool: "gotm", BinDir: binDir, KebabDir: kebabDir, Owned: l.ExtractsDir()}, nil
+	return shim.Stamper{Tool: "gotm", BinDir: binDir, MalletDir: malletDir, Owned: l.ExtractsDir()}, nil
 }
 
 // isShim is tidy's question of a file in the bin dir.

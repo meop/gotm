@@ -102,7 +102,7 @@ set: you run the one you mean.
   unpacked. It stays in `~/.gotm/download` while a toolchain is on that
   release, so a second pin on the same release is not downloaded again;
   `gotm tidy` removes the ones nothing is on.
-- The commands in `~/.gotm/bin` are small [sheesh](https://github.com/meop/sheesh)
+- The commands in `~/.gotm/bin` are small [wedge](https://github.com/meop/wedge)
   shims that run the real ones where they are unpacked, so there are no
   symlinks or junctions.
 - A release candidate is installed only when you name it (`gotm add 1.28rc1`).

@@ -75,8 +75,8 @@ a separate module, and that is most of it: `manifest` (the manifest's format,
 keys, pin levels and shim names), `layout` (the directories under `~/.gotm`),
 `journal` (commit and rollback), `tidy` (what is broken or orphaned, and its
 removal), `ui` (output and prompts), `vers` (pins and comparison), `fetch`
-(the checked download and extraction), `pinned` and `sheesh` (the vendored
-kebab, kept at its pin by content), `shim`, `upgrade`, `lock` and `home`.
+(the checked download and extraction), `pinned` and `wedge` (the vendored
+mallet, kept at its pin by content), `shim`, `upgrade`, `lock` and `home`.
 golie knows nothing of go: where ghpm passes a package name, gotm passes
 `go`. A change to any of those is made there, released there (bump its
 `VERSION`), and taken here with `go get github.com/meop/golie@v<VERSION>`.
@@ -130,7 +130,7 @@ command's path inside the extract dir.
   two pins on the same release are two trees, as two ghpm installs are
 - `~/.gotm/download/go.dev/dl/<version>/` — the archive, kept while an install
   is on that release and removed by `tidy` once none is
-- `~/.gotm/vendor/sheesh/` — `kebab` and its templates; never on `PATH`
+- `~/.gotm/vendor/wedge/` — `mallet` and its templates; never on `PATH`
 
 ## Key flows
 
@@ -155,7 +155,7 @@ says so. Every install that is not `fixed` (all, or the ones named; a named
 fixed one is said and skipped): resolve → a newer release, or any with
 `--reinstall` → **gate table** (name/version/update/pin/uri) + confirm → `apply`.
 
-**apply** (one toolchain) — sync the vendored sheesh once per command → fetch
+**apply** (one toolchain) — sync the vendored wedge once per command → fetch
 the archive into the download cache unless a copy with the right sha256 is
 there → unpack it beside its extract dir and rename it in → stamp a shim for
 every command in the tree's `bin` → write the manifest entry → remove shims
@@ -201,13 +201,13 @@ anything. Everything else such a gotm does is unchanged: its
 state is still `~/.gotm` and its shims still go in `~/.gotm/bin`, it is only
 not in there itself.
 
-**Vendored sheesh** — golie pins it: a version and the sha256 of each
+**Vendored wedge** — golie pins it: a version and the sha256 of each
 platform's archive and of every file kept from it. Before anything is stamped,
 the vendored files are checked against that pin by content, not by the version
-`kebab` reports, so a copy from another gotm, a damaged one and a swapped one
+`mallet` reports, so a copy from another gotm, a damaged one and a swapped one
 all fail the same check and are replaced from a plain download of the pinned
 release. The sync is **silent** — on a match, a fetch and a replace alike —
-since sheesh is internals, and a line about it would only confuse someone who
+since wedge is internals, and a line about it would only confuse someone who
 asked for a toolchain. Only a failure is shown. Never wire `pinned.Options.Fetching` or
 `Replacing` to a print. Taking a newer golie is the only way it moves; it is
 not part of `upgrade`.
@@ -215,7 +215,7 @@ not part of `upgrade`.
 ## Conventions
 
 - go's releases and checksums come from go.dev only. No GitHub API call
-  anywhere: sheesh and gotm's own upgrade are plain release downloads
+  anywhere: wedge and gotm's own upgrade are plain release downloads
 - `--reinstall` and `--force` are two flags because they are two things to
   ask for, and neither implies the other. `--reinstall` redoes gotm's own
   work — an install already there, a toolchain already at the newest release —

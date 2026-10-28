@@ -45,7 +45,7 @@ func newUpgradeCmd() *cobra.Command {
 }
 
 // runUpgrade upgrades gotm and nothing else: the go toolchains are sync's,
-// and the vendored sheesh is pinned to whatever the new gotm was built to run.
+// and the vendored wedge is pinned to whatever the new gotm was built to run.
 func runUpgrade(cmd *cobra.Command, args []string) error {
 	ctx := context.Background()
 	failed := func(err error) error {
