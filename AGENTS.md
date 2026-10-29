@@ -223,6 +223,17 @@ asked for a toolchain. Only a failure is shown. Never wire `pinned.Options.Fetch
 `Replacing` to a print. Taking a newer golie is the only way it moves; it is
 not part of `upgrade`.
 
+## Testing on a real host
+
+CI runs the tests on Linux, macOS and Windows. To run them on a machine of your own over ssh:
+
+- Windows: build the test binary anywhere (`GOOS=windows go test -c -o <pkg>.test.exe ./<pkg>/`), copy it over and run
+  it there. In PowerShell, quote a test flag whole (`'-test.v=true'`): PowerShell splits a bare `-test.v` at its dot.
+- macOS and Windows fold the case of file names: a test that makes two names differing only by case (or a link from
+  one to the other) cannot run there, so test the behavior the folding causes instead.
+- In a Windows ssh login, OpenSSH's own tools (`ssh`, `ssh-keygen`) can lose their output: run what uses them from the
+  desktop session.
+
 ## Conventions
 
 - go's releases and checksums come from go.dev only. No GitHub API call

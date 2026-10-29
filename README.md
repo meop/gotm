@@ -113,6 +113,13 @@ set: you run the one you mean.
 A project whose `go.mod` asks for a newer go than the one you run is still
 built by a toolchain go downloads for itself; that is go's doing, not gotm's.
 
+## Upgrading gotm
+
+Run `gotm upgrade` before `gotm sync`. gotm 0.6 and newer keep each toolchain in `~/.gotm/extract/<key>/<version>`
+beside a file naming it, which the commands in `~/.gotm/bin` run through, so they stay the same files across updates;
+an older layout moves over on the next sync (`gotm sync --reinstall` moves them all). Once it has, do not run an
+older gotm on that machine: its `tidy` would remove toolchains it no longer finds where it expects them.
+
 ## Verifying releases
 
 Every release archive contains `LICENSE`. Verify the signed checksum manifest
