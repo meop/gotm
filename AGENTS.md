@@ -131,8 +131,10 @@ go.dev's `go` prefix; `bin` maps each shim, named as it sits on disk, to the
 command's path inside the extract dir.
 
 - `~/.gotm/bin/` — gotm and the shims; the one directory that goes on `PATH`
-- `~/.gotm/extract/<key>/<version>/` — a go tree, its GOROOT. One per install:
-  two pins on the same release are two trees, as two ghpm installs are
+- `~/.gotm/extract/<key>/` — a go tree, its GOROOT, at one path from one
+  release to the next, so its shims need not change. One per install: two pins
+  on the same release are two trees, as two ghpm installs are. A sync unpacks
+  into `extract/.<key>.new` and swaps it in (`golie/journal.Swap`)
 - `~/.gotm/download/go.dev/dl/<version>/` — the archive, kept while an install
   is on that release and removed by `tidy` once none is
 - `~/.gotm/vendor/wedge/` — `mallet` and its templates; never on `PATH`
@@ -189,7 +191,8 @@ shim that will not delete leaves the toolchain fully described for the retry.
 Its cached archive is left for `tidy`.
 
 **Tidy** — ghpm's, by `golie/tidy`: broken installs, orphaned shims, orphaned
-extract dirs (a crashed unpack's `<version>.tmp` among them) and orphaned
+extract dirs (a crashed unpack's `.<key>.new` among them, and a replaced tree a
+running go kept from removal) and orphaned
 downloads, each shown and confirmed on its own; `--all` empties the download
 cache.
 

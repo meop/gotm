@@ -9,8 +9,8 @@ github.com/mattn/go-colorable v0.1.14 h1:9A9LHSqF/7dyVVX6g0U9cwm9pG3kP9gSzcuIPHP
 github.com/mattn/go-colorable v0.1.14/go.mod h1:6LmQG8QLFO4G5z1gPvYEzlUgJ2wF+stgPZH1UqBm1s8=
 github.com/mattn/go-isatty v0.0.24 h1:tGZZoVgT/KiqK1c8ocVLeDS8BSWMRd47J3Lbz7vsReI=
 github.com/mattn/go-isatty v0.0.24/go.mod h1:nMCL3Zebbrt45jsMDgnfIwz6ydEQApk5oEI3HqDio6A=
-github.com/meop/golie v0.4.0 h1:5l/mQl8vbwQ1yQh3P32/EhuSHFJNr1UUv4++uzeAqOw=
-github.com/meop/golie v0.4.0/go.mod h1:zba5eSlTmSID22Krx7wUsFXfsZQ7tjU+XQ7QTsVjjNU=
+github.com/meop/golie v0.5.0 h1:czUxAU/UuK5rO2OmhwLnZMYPdYPcg3GOvt4cPcMG4BQ=
+github.com/meop/golie v0.5.0/go.mod h1:zba5eSlTmSID22Krx7wUsFXfsZQ7tjU+XQ7QTsVjjNU=
 github.com/russross/blackfriday/v2 v2.1.0/go.mod h1:+Rmxgy9KzJVeS9/2gXHxylqXiyQDYRxCVz55jmeOWTM=
 github.com/spf13/cobra v1.10.2 h1:DMTTonx5m65Ic0GOoRY2c16WCbHxOOw6xxezuLaBpcU=
 github.com/spf13/cobra v1.10.2/go.mod h1:7C1pvHqHw5A4vrJfjNwvOdzYu0Gml16OCs2GRiTUUS4=

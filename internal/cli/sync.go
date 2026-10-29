@@ -265,8 +265,8 @@ func syncWedge(ctx context.Context, l layout.Layout) error {
 // own extract dir, a shim per command, and then the manifest entry.
 //
 // The manifest is the commit point. Everything before it is journalled, and a
-// failure rolls the journal back to the release the manifest still names. The
-// old extract dir is removed only after the commit, because that rollback
+// failure rolls the journal back to the release the manifest still names. What
+// the swap moved aside is removed only after the commit, because that rollback
 // restores from it.
 func apply(ctx context.Context, m *config.Manifest, l layout.Layout, c change) error {
 	version := godl.Display(c.target.Version)
@@ -291,8 +291,7 @@ func apply(ctx context.Context, m *config.Manifest, l layout.Layout, c change) e
 		return err
 	}
 
-	tree := l.ExtractPath(c.key, version)
-	oldTree := l.ExtractPath(c.key, c.prev.Version)
+	tree, stage := l.ExtractPath(c.key), l.StagePath(c.key)
 	jrn := &journal.Journal{}
 	rollback := func(err error) error {
 		for _, undo := range jrn.Rollback() {
@@ -301,10 +300,15 @@ func apply(ctx context.Context, m *config.Manifest, l layout.Layout, c change) e
 		return err
 	}
 
-	jrn.Did("extract", journal.ExtractUndo(tree, c.prev.Version, version))
-	if err := unpack(archive, tree); err != nil {
-		return rollback(err)
+	if err := unpack(archive, stage); err != nil {
+		return err
 	}
+	aside, undo, err := journal.Swap(stage, tree)
+	if err != nil {
+		_ = os.RemoveAll(stage)
+		return err
+	}
+	jrn.Did("extract", undo)
 	keys, err := treeBins(tree)
 	if err != nil {
 		return rollback(err)
@@ -313,11 +317,7 @@ func apply(ctx context.Context, m *config.Manifest, l layout.Layout, c change) e
 	for _, binKey := range keys {
 		name := manifest.ShimName(c.key, filepath.Base(binKey))
 		print("%s: bin found [%s]", c.key, binKey)
-		oldSource := ""
-		if old := c.prev.Bin[name]; old != "" {
-			oldSource = filepath.Join(oldTree, filepath.FromSlash(old))
-		}
-		jrn.Did("shim "+name, journal.ShimUndo(s, name, oldSource))
+		jrn.Did("shim "+name, journal.ShimUndo(s, name))
 		if err := s.Create(name, filepath.Join(tree, filepath.FromSlash(binKey)), force); err != nil {
 			return rollback(fmt.Errorf("%s: could not create shim: %w", name, err))
 		}
@@ -343,35 +343,25 @@ func apply(ctx context.Context, m *config.Manifest, l layout.Layout, c change) e
 			}
 		}
 	}
-	if c.prev.Version != "" && c.prev.Version != version {
-		if err := tidy.PruneExtract(oldTree, l.ExtractsDir()); err != nil {
-			printWarn("%s: could not remove %s: %v", c.key, oldTree, err)
+	if aside != "" {
+		if err := tidy.PruneExtract(aside, l.ExtractsDir()); err != nil {
+			printWarn("%s: could not remove %s: %v", c.key, aside, err)
 		}
 	}
 	return nil
 }
 
-// unpack makes tree the go the archive holds. It is unpacked beside tree and
-// renamed in, so tree either is a whole go or is not there.
-func unpack(archive, tree string) error {
-	if err := os.MkdirAll(filepath.Dir(tree), 0755); err != nil {
+// unpack makes stage the go the archive holds, for journal.Swap.
+func unpack(archive, stage string) error {
+	if err := os.MkdirAll(filepath.Dir(stage), 0755); err != nil {
 		return err
 	}
-	staging := tree + ".tmp"
-	if err := os.RemoveAll(staging); err != nil {
+	if err := os.RemoveAll(stage); err != nil {
 		return err
 	}
 	// the archive holds one top level "go" directory
-	if err := fetch.Extract(archive, staging, 1); err != nil {
-		_ = os.RemoveAll(staging)
-		return err
-	}
-	if err := os.RemoveAll(tree); err != nil {
-		_ = os.RemoveAll(staging)
-		return err
-	}
-	if err := os.Rename(staging, tree); err != nil {
-		_ = os.RemoveAll(staging)
+	if err := fetch.Extract(archive, stage, 1); err != nil {
+		_ = os.RemoveAll(stage)
 		return err
 	}
 	return nil

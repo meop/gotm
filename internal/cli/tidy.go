@@ -153,8 +153,8 @@ func cleanOrphanedBinShims(m *config.Manifest, dirs tidy.Dirs) bool {
 	return true
 }
 
-// cleanOrphanedExtracts removes extract dirs, and stale version dirs inside
-// installed ones, that no manifest entry is on.
+// cleanOrphanedExtracts removes extract dirs no manifest entry is on, and what
+// an op left staged or aside.
 func cleanOrphanedExtracts(m *config.Manifest, dirs tidy.Dirs) bool {
 	orphans := tidy.FindOrphanExtracts(m, dirs.Extracts)
 	if len(orphans) == 0 {
@@ -162,9 +162,13 @@ func cleanOrphanedExtracts(m *config.Manifest, dirs tidy.Dirs) bool {
 	}
 	rows := make([][]string, len(orphans))
 	for i, o := range orphans {
-		rows[i] = []string{o.Key, o.Version}
+		state := "not installed"
+		if o.Leftover {
+			state = "left over"
+		}
+		rows[i] = []string{o.Key, state}
 	}
-	printTable([]string{"name", "version"}, rows, nil)
+	printTable([]string{"name", "state"}, rows, nil)
 	if dryRun {
 		return dryRunBail()
 	}

@@ -91,7 +91,7 @@ func runRemove(cmd *cobra.Command, args []string) error {
 			}
 		}
 		if reason == "" {
-			if err := tidy.PruneExtract(l.ExtractPath(key, e.Version), l.ExtractsDir()); err != nil && !os.IsNotExist(err) {
+			if err := tidy.PruneExtract(l.ExtractPath(key), l.ExtractsDir()); err != nil && !os.IsNotExist(err) {
 				reason = fmt.Sprintf("could not remove extract dir: %v", err)
 				printFail("%s: %s", key, reason)
 			}
