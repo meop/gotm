@@ -52,7 +52,8 @@ GOOS=windows GOARCH=amd64 go build -o gotm-windows-amd64.exe ./cmd/gotm
 
 To cut a release: bump the version in `VERSION` and push to `main`. The CI
 pipeline (`.github/workflows/pipeline.yaml`) is ghpm's: version check → validate
-(fmt + lint + test) → a GPG-signed tag `v<VERSION>` and `goreleaser release`.
+(fmt + lint + test), with the tests again on Windows and macOS → a GPG-signed tag
+`v<VERSION>` and `goreleaser release`.
 It requires the `GPG_PRIVATE_KEY` and `GPG_PASSPHRASE` repository secrets.
 Never create the tag by hand.
 

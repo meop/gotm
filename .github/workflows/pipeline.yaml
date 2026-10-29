@@ -62,9 +62,13 @@ jobs:
       - name: Test
         run: go test ./...
 
-  test-windows:
-    name: Test on Windows
-    runs-on: windows-latest
+  test:
+    name: Test (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ windows-latest, macos-latest ]
+    runs-on: ${{ matrix.os }}
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -77,7 +81,7 @@ jobs:
 
   release:
     name: Release
-    needs: [ version, validate, test-windows ]
+    needs: [ version, validate, test ]
     if: github.ref == 'refs/heads/main' && needs.version.outputs.changed == 'true'
     permissions:
       contents: write
