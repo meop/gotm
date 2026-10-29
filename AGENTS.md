@@ -132,7 +132,7 @@ command's path inside the extract dir.
 
 - `~/.gotm/bin/` — gotm and the shims; the one directory that goes on `PATH`
 - `~/.gotm/extract/<key>/<version>/` — a go tree, its GOROOT, and
-  `extract/<key>/latest`, a pointer file naming it, which the shims are stamped
+  `extract/<key>/version`, a pointer file naming it, which the shims are stamped
   through, so they need not change from one release to the next. One per
   install: two pins on the same release are two trees, as two ghpm installs
   are. A sync unpacks into `extract/<key>/.<version>.new`, places it and moves

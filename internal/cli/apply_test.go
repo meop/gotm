@@ -68,7 +68,7 @@ func release(t *testing.T, l layout.Layout, version string) godl.Release {
 	}}
 }
 
-func TestApplyPointsLatestAtEachReleaseAndLeavesNoOldOne(t *testing.T) {
+func TestApplyPointsTheVersionFileAtEachReleaseAndLeavesNoOldOne(t *testing.T) {
 	t.Setenv("GOTM_TEST_HOME", t.TempDir())
 	l, err := store.Layout()
 	if err != nil {
@@ -81,9 +81,9 @@ func TestApplyPointsLatestAtEachReleaseAndLeavesNoOldOne(t *testing.T) {
 		if err := apply(context.Background(), m, l, c); err != nil {
 			t.Fatal(err)
 		}
-		tree, ok := pointer.Target(l.LatestPath("go"))
+		tree, ok := pointer.Target(l.VersionFilePath("go"))
 		if !ok || tree != l.VersionPath("go", version) {
-			t.Fatalf("after %s latest names %s, %v", version, tree, ok)
+			t.Fatalf("after %s the version file names %s, %v", version, tree, ok)
 		}
 		if got, err := os.ReadFile(filepath.Join(tree, "VERSION")); err != nil || string(got) != "go"+version {
 			t.Errorf("after %s the tree says %q, %v", version, got, err)
@@ -100,7 +100,7 @@ func TestApplyPointsLatestAtEachReleaseAndLeavesNoOldOne(t *testing.T) {
 	for _, e := range entries {
 		names = append(names, e.Name())
 	}
-	if strings.Join(names, ",") != "1.27.2,latest" {
+	if strings.Join(names, ",") != "1.27.2,version" {
 		t.Errorf("the install holds %v", names)
 	}
 }

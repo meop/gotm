@@ -266,7 +266,7 @@ func syncWedge(ctx context.Context, l layout.Layout) error {
 //
 // The manifest is the commit point. Everything before it is journalled, and a
 // failure rolls the journal back to the release the manifest still names. The
-// release the latest pointer left is removed only after the commit, because
+// release the version file left is removed only after the commit, because
 // that rollback restores from it.
 func apply(ctx context.Context, m *config.Manifest, l layout.Layout, c change) error {
 	version := godl.Display(c.target.Version)
@@ -291,7 +291,7 @@ func apply(ctx context.Context, m *config.Manifest, l layout.Layout, c change) e
 		return err
 	}
 
-	latest, stage := l.LatestPath(c.key), l.StagePath(c.key, version)
+	vfile, stage := l.VersionFilePath(c.key), l.StagePath(c.key, version)
 	jrn := &journal.Journal{}
 	rollback := func(err error) error {
 		for _, undo := range jrn.Rollback() {
@@ -309,11 +309,11 @@ func apply(ctx context.Context, m *config.Manifest, l layout.Layout, c change) e
 		return err
 	}
 	jrn.Did("extract", undo)
-	undo, err = journal.Point(latest, tree)
+	undo, err = journal.Point(vfile, tree)
 	if err != nil {
 		return rollback(err)
 	}
-	jrn.Did("latest", undo)
+	jrn.Did("version file", undo)
 	keys, err := treeBins(tree)
 	if err != nil {
 		return rollback(err)
@@ -323,7 +323,7 @@ func apply(ctx context.Context, m *config.Manifest, l layout.Layout, c change) e
 		name := manifest.ShimName(c.key, filepath.Base(binKey))
 		print("%s: bin found [%s]", c.key, binKey)
 		jrn.Did("shim "+name, journal.ShimUndo(s, name))
-		if err := s.Create(name, filepath.Join(latest, filepath.FromSlash(binKey)), force); err != nil {
+		if err := s.Create(name, filepath.Join(vfile, filepath.FromSlash(binKey)), force); err != nil {
 			return rollback(fmt.Errorf("%s: could not create shim: %w", name, err))
 		}
 		bins[name] = binKey
