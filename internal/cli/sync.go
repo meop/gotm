@@ -265,9 +265,9 @@ func syncWedge(ctx context.Context, l layout.Layout) error {
 // own extract dir, a shim per command, and then the manifest entry.
 //
 // The manifest is the commit point. Everything before it is journalled, and a
-// failure rolls the journal back to the release the manifest still names. What
-// the swap moved aside is removed only after the commit, because that rollback
-// restores from it.
+// failure rolls the journal back to the release the manifest still names. The
+// release the latest pointer left is removed only after the commit, because
+// that rollback restores from it.
 func apply(ctx context.Context, m *config.Manifest, l layout.Layout, c change) error {
 	version := godl.Display(c.target.Version)
 	file, err := c.target.Archive()
@@ -291,7 +291,7 @@ func apply(ctx context.Context, m *config.Manifest, l layout.Layout, c change) e
 		return err
 	}
 
-	tree, stage := l.ExtractPath(c.key), l.StagePath(c.key)
+	latest, stage := l.LatestPath(c.key), l.StagePath(c.key, version)
 	jrn := &journal.Journal{}
 	rollback := func(err error) error {
 		for _, undo := range jrn.Rollback() {
@@ -303,12 +303,17 @@ func apply(ctx context.Context, m *config.Manifest, l layout.Layout, c change) e
 	if err := unpack(archive, stage); err != nil {
 		return err
 	}
-	aside, undo, err := journal.Swap(stage, tree)
+	tree, undo, err := journal.Place(stage, l.VersionPath(c.key, version))
 	if err != nil {
 		_ = os.RemoveAll(stage)
 		return err
 	}
 	jrn.Did("extract", undo)
+	undo, err = journal.Point(latest, tree)
+	if err != nil {
+		return rollback(err)
+	}
+	jrn.Did("latest", undo)
 	keys, err := treeBins(tree)
 	if err != nil {
 		return rollback(err)
@@ -318,7 +323,7 @@ func apply(ctx context.Context, m *config.Manifest, l layout.Layout, c change) e
 		name := manifest.ShimName(c.key, filepath.Base(binKey))
 		print("%s: bin found [%s]", c.key, binKey)
 		jrn.Did("shim "+name, journal.ShimUndo(s, name))
-		if err := s.Create(name, filepath.Join(tree, filepath.FromSlash(binKey)), force); err != nil {
+		if err := s.Create(name, filepath.Join(latest, filepath.FromSlash(binKey)), force); err != nil {
 			return rollback(fmt.Errorf("%s: could not create shim: %w", name, err))
 		}
 		bins[name] = binKey
@@ -343,10 +348,8 @@ func apply(ctx context.Context, m *config.Manifest, l layout.Layout, c change) e
 			}
 		}
 	}
-	if aside != "" {
-		if err := tidy.PruneExtract(aside, l.ExtractsDir()); err != nil {
-			printWarn("%s: could not remove %s: %v", c.key, aside, err)
-		}
+	for _, st := range tidy.PruneInstall(l.ExtractPath(c.key)) {
+		printWarn("%s: could not remove %s, left for tidy: %v", c.key, st.Path, st.Err)
 	}
 	return nil
 }

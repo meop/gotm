@@ -9,9 +9,11 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 
 	"github.com/meop/golie/layout"
+	"github.com/meop/golie/pointer"
 	"github.com/meop/gotm/internal/config"
 	"github.com/meop/gotm/internal/godl"
 	"github.com/meop/gotm/internal/store"
@@ -66,8 +68,7 @@ func release(t *testing.T, l layout.Layout, version string) godl.Release {
 	}}
 }
 
-// a go tree, its GOROOT, is at one path from one release to the next
-func TestApplyKeepsTheTreeAtOnePathAndLeavesNoOldRelease(t *testing.T) {
+func TestApplyPointsLatestAtEachReleaseAndLeavesNoOldOne(t *testing.T) {
 	t.Setenv("GOTM_TEST_HOME", t.TempDir())
 	l, err := store.Layout()
 	if err != nil {
@@ -80,19 +81,26 @@ func TestApplyKeepsTheTreeAtOnePathAndLeavesNoOldRelease(t *testing.T) {
 		if err := apply(context.Background(), m, l, c); err != nil {
 			t.Fatal(err)
 		}
-		got, err := os.ReadFile(filepath.Join(l.ExtractPath("go"), "VERSION"))
-		if err != nil || string(got) != "go"+version {
+		tree, ok := pointer.Target(l.LatestPath("go"))
+		if !ok || tree != l.VersionPath("go", version) {
+			t.Fatalf("after %s latest names %s, %v", version, tree, ok)
+		}
+		if got, err := os.ReadFile(filepath.Join(tree, "VERSION")); err != nil || string(got) != "go"+version {
 			t.Errorf("after %s the tree says %q, %v", version, got, err)
 		}
 		if m.Extracts["go"].Version != version {
 			t.Errorf("the manifest says %s after %s", m.Extracts["go"].Version, version)
 		}
 	}
-	entries, err := os.ReadDir(l.ExtractsDir())
+	entries, err := os.ReadDir(l.ExtractPath("go"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(entries) != 1 || entries[0].Name() != "go" {
-		t.Errorf("extracts hold %v", entries)
+	var names []string
+	for _, e := range entries {
+		names = append(names, e.Name())
+	}
+	if strings.Join(names, ",") != "1.27.2,latest" {
+		t.Errorf("the install holds %v", names)
 	}
 }
